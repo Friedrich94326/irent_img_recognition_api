@@ -1,0 +1,9 @@
+target-version = "py310"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "PLC"]
+ignore = ["B008"]  # FastAPI uses function calls (Depends/File) as argument defaults
+
+[lint.per-file-ignores]
+"tests/*" = ["S101"]

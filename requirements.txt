@@ -1,0 +1,14 @@
+# Runtime dependencies.
+# The lighter subset (everything except ultralytics/numpy) is enough to run the API
+# with the built-in mock detector. Install ultralytics for real YOLOv8 inference.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+python-multipart>=0.0.9
+pillow>=10.3
+anyio>=4.4
+
+# Real inference (pulls in torch - large download):
+ultralytics>=8.2
+numpy>=1.26

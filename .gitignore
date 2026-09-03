@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Environment
+.env
+
+# Model weights / training artifacts
+*.pt
+*.onnx
+runs/
+weights/
+
+# Datasets — large data is not checked in (also see Datasets/.gitignore)
+Datasets/
+
+# Loose archives / data dumps anywhere in the tree
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.parquet
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
