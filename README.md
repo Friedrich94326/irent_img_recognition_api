@@ -136,15 +136,11 @@ pytest
 ruff check .
 ```
 
+## System Architecture
 ```mermaid
 ---
-title: iRent Car Damage Evaluation API — system architecture
+title: iRent Car Damage Evaluation API
 ---
-%% Source of truth: app/main.py, app/api/routes/, app/services/{image_io,evaluator,severity}.py,
-%% app/core/exceptions.py, app/config.py. Regenerate this diagram when those change.
-%%
-%% Solid edges  = request / happy path
-%% Dashed edges = fallback (startup) and error envelope (request)
 
 flowchart TD
     Client["Client<br/>mobile app / ops dashboard"]
