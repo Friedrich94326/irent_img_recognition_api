@@ -135,3 +135,7 @@ pip install -r requirements-dev.txt
 pytest
 ruff check .
 ```
+
+```mermaid
+docs/architecture.mmds
+```
