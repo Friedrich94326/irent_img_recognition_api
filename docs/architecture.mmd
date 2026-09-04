@@ -1,0 +1,78 @@
+---
+title: iRent Car Damage Evaluation API — system architecture
+---
+%% Source of truth: app/main.py, app/api/routes/, app/services/{image_io,evaluator,severity}.py,
+%% app/core/exceptions.py, app/config.py. Regenerate this diagram when those change.
+%%
+%% Solid edges  = request / happy path
+%% Dashed edges = fallback (startup) and error envelope (request)
+
+flowchart TD
+    Client["Client<br/>mobile app / ops dashboard"]
+    Response["DamageEvaluationResponse<br/>200 · application/json"]
+
+    subgraph app["FastAPI application — app.main:app (Uvicorn ASGI)"]
+        direction TB
+        CORS["CORS middleware<br/>allow-origins from Settings"]
+        Handlers["Exception handlers<br/>core/exceptions.py<br/>render ErrorResponse envelope"]
+        subgraph routes["api_router · prefix /api/v1"]
+            direction TB
+            Evaluate["POST /damage/evaluate<br/>routes/damage.py"]
+            Health["GET /health<br/>routes/health.py"]
+        end
+    end
+
+    subgraph pipeline["Request pipeline · per /damage/evaluate call"]
+        direction TB
+        LoadUpload["image_io.load_upload()<br/>check content-type &amp; size<br/>decode to RGB (Pillow)"]
+        Predict["evaluator.predict()<br/>run in threadpool · anyio.to_thread"]
+        Severity["severity.py<br/>enrich · summarize · derive_overall_severity"]
+    end
+
+    subgraph startup["Application startup · lifespan"]
+        direction TB
+        Settings["Settings<br/>IRENT_* env / .env"]
+        Build["build_evaluator(settings)"]
+        WPset{"yolo_weights_path<br/>configured?"}
+        WPexists{"weights file<br/>exists on disk?"}
+        Load["load YOLOv8<br/>Ultralytics + torch"]
+        YOLO["YOLOv8Evaluator<br/>model names -&gt; DamageClass"]
+        Mock["MockEvaluator<br/>deterministic stand-in<br/>sha256(image) seed · is_mock=true"]
+        State["app.state.evaluator<br/>one detector, whole process"]
+    end
+
+    %% --- request / happy path ---
+    Client -->|"POST multipart/form-data · one image file"| CORS
+    CORS --> Evaluate
+    CORS --> Health
+    Evaluate -->|"await load_upload(file, settings)"| LoadUpload
+    LoadUpload -->|"RGB PIL image + ImageMetadata"| Predict
+    Predict -->|"list[RawDetection] — class, confidence, xyxy"| Severity
+    Severity -->|"detections + per-class summary + overall_severity"| Response
+    Response --> Client
+
+    %% --- error envelope ---
+    LoadUpload -.->|"415 unsupported · 413 too large · 422 unreadable"| Handlers
+    Evaluate -.->|"422 validation_error (missing file field)"| Handlers
+    Handlers -.->|"4xx / 5xx { error: code, message, field }"| Client
+
+    %% --- detector injection ---
+    State -.->|"Depends(get_evaluator)"| Predict
+
+    %% --- startup detector selection ---
+    Settings --> Build --> WPset
+    WPset -.->|"no — unset"| Mock
+    WPset -->|"yes"| WPexists
+    WPexists -.->|"no — missing (logs warning)"| Mock
+    WPexists -->|"yes"| Load
+    Load -.->|"import / load error (logs warning)"| Mock
+    Load -->|"loaded"| YOLO
+    YOLO --> State
+    Mock --> State
+
+    classDef decision fill:#f7e6dc,stroke:#c1410c,color:#1b2129;
+    classDef fallback fill:#f7e6dc,stroke:#c1410c,color:#1b2129;
+    classDef result stroke-width:2px;
+    class WPset,WPexists decision;
+    class Mock,Handlers fallback;
+    class Response,State result;
