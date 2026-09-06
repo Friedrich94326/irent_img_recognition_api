@@ -4,7 +4,7 @@ description: >-
   Run the iRent Car Damage Evaluation API checks: the pytest suite and the ruff
   linter. Use this whenever the user asks to test, verify, validate, lint, or
   check the FastAPI app, or before staging a commit. Also covers starting the
-  local dev server for a manual smoke test.
+  local dev server and the web/index.html test client for a manual smoke test.
 ---
 
 # Running the iRent damage API checks
@@ -44,12 +44,20 @@ Only when the user wants to hit real HTTP endpoints:
 ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Then in another shell:
+Then in another shell, either hit it with curl:
 
 ```bash
 curl -s http://127.0.0.1:8000/api/v1/health
 curl -s -F "file=@some-car.jpg" http://127.0.0.1:8000/api/v1/damage/evaluate
 ```
+
+...or drive it visually with the bundled web client, which needs no build step: open
+`web/index.html` directly in a browser (or `python -m http.server 5500` from `web/` — use a
+port other than 8000, since the API itself is already listening there). It defaults
+to `http://127.0.0.1:8000`, shows a live health pill, and lets you drag in a photo and see
+detections drawn as color-coded boxes over the image plus the summary/severity — good for
+confirming a change didn't break the response shape or the overlay math, not just that the
+endpoint returns 200.
 
 Stop the server when done.
 

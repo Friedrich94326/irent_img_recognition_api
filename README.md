@@ -95,6 +95,15 @@ Then open <http://127.0.0.1:8000/docs>, or:
 curl -F "file=@car.jpg" http://127.0.0.1:8000/api/v1/damage/evaluate
 ```
 
+### Web test client
+
+`web/index.html` is a single-file, dependency-free page for manually exercising the API:
+drag in a photo, run health checks, and see detections drawn as color-coded boxes over the
+image alongside the summary and severity. Open it directly in a browser (or serve the `web/`
+folder with `python -m http.server 5500`, picking a port other than 8000 since the API
+already uses that one) with the API running — it defaults to
+`http://127.0.0.1:8000` but the base URL is editable in the page.
+
 ## Using a real YOLOv8 model
 
 Set the weights path (env var or `.env`, see `.env.example`):

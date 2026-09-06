@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>iRent Damage Inspector</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1b2129;
+    --text-dim: #667085;
+    --accent: #c1410c;
+    --accent-dim: #f7e6dc;
+    --ok: #1a7f37;
+    --ok-bg: #dcfce7;
+    --bad: #cf222e;
+    --bad-bg: #fee2e2;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+    --sev-none: #6b7280;
+    --sev-none-bg: #f3f4f6;
+    --sev-minor: #a16207;
+    --sev-minor-bg: #fef3c7;
+    --sev-moderate: #c2410c;
+    --sev-moderate-bg: #ffedd5;
+    --sev-severe: #b91c1c;
+    --sev-severe-bg: #fee2e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f26;
+      --border: #2b2f38;
+      --text: #e6e8ec;
+      --text-dim: #9aa2b1;
+      --accent: #ff8a4c;
+      --accent-dim: #3a2417;
+      --ok: #3fb950;
+      --ok-bg: #123321;
+      --bad: #f85149;
+      --bad-bg: #3b1618;
+
+      --sev-none: #9aa2b1;
+      --sev-none-bg: #262a32;
+      --sev-minor: #e0b23d;
+      --sev-minor-bg: #3a2f10;
+      --sev-moderate: #ff8a4c;
+      --sev-moderate-bg: #3a2312;
+      --sev-severe: #ff6b6b;
+      --sev-severe-bg: #3b1618;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  header h1 { font-size: 20px; margin: 0; }
+  header .sub { color: var(--text-dim); font-size: 13px; }
+
+  .bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 18px;
+  }
+  .bar label { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+  .bar input[type=text] {
+    flex: 1; min-width: 220px; background: transparent; border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; color: var(--text); font-family: var(--mono); font-size: 13px;
+  }
+  .bar input[type=text]:focus { outline: none; border-color: var(--accent); }
+
+  button {
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    border-radius: 7px; padding: 8px 14px; transition: border-color .15s, background .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.bad { color: var(--bad); background: var(--bad-bg); }
+  .pill.idle { color: var(--text-dim); background: var(--border); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 0 0 12px; }
+
+  .dropzone {
+    border: 2px dashed var(--border); border-radius: 10px; min-height: 260px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 20px; cursor: pointer; position: relative; overflow: hidden; background: var(--bg);
+  }
+  .dropzone.drag { border-color: var(--accent); background: var(--accent-dim); }
+  .dropzone .hint { color: var(--text-dim); font-size: 13px; }
+  .dropzone .hint b { color: var(--text); }
+  .dropzone input[type=file] { display: none; }
+
+  .stage { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+  .stage img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  .file-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--text-dim); flex-wrap: wrap; }
+  .file-row .name { color: var(--text); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; }
+
+  .empty { color: var(--text-dim); font-size: 13px; padding: 30px 0; text-align: center; }
+
+  .sev-badge {
+    display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px;
+    padding: 8px 14px; border-radius: 8px; text-transform: capitalize;
+  }
+  .sev-none    { color: var(--sev-none);    background: var(--sev-none-bg); }
+  .sev-minor   { color: var(--sev-minor);   background: var(--sev-minor-bg); }
+  .sev-moderate{ color: var(--sev-moderate);background: var(--sev-moderate-bg); }
+  .sev-severe  { color: var(--sev-severe);  background: var(--sev-severe-bg); }
+
+  .stat-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+  .stat { flex: 1; min-width: 110px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .stat .v { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+  .stat .k { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; margin-top: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  td.mono { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  tr:last-child td { border-bottom: none; }
+
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+  .meta-line { font-size: 12px; color: var(--text-dim); margin-top: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .meta-line b { color: var(--text); font-weight: 600; }
+
+  .error-box {
+    background: var(--bad-bg); color: var(--bad); border: 1px solid var(--bad);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 12px;
+  }
+  .error-box code { font-family: var(--mono); font-size: 12px; }
+
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4);
+    border-top-color: #fff; display: inline-block; animation: spin .7s linear infinite; margin-right: 6px; vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>iRent Damage Inspector</h1>
+      <div class="sub">Manual test client for the Car Damage Evaluation API</div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <label for="apiBase">API base URL</label>
+    <input type="text" id="apiBase" value="http://127.0.0.1:8000" spellcheck="false" />
+    <button id="checkHealthBtn">Check health</button>
+    <span id="healthPill" class="pill idle"><span class="dot"></span>unknown</span>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Image</h2>
+      <div id="dropzone" class="dropzone">
+        <div id="dzHint" class="hint">
+          Drag &amp; drop a JPEG / PNG / WebP photo here<br />or <b>click to browse</b>
+        </div>
+        <div id="stage" class="stage" style="display:none">
+          <img id="preview" alt="preview" />
+          <canvas id="overlay"></canvas>
+        </div>
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" />
+      </div>
+      <div class="file-row" id="fileRow" style="display:none">
+        <span class="name" id="fileName"></span>
+        <span id="fileSize"></span>
+      </div>
+      <div class="actions">
+        <button class="primary" id="evaluateBtn" disabled>Evaluate damage</button>
+        <button id="clearBtn">Clear</button>
+      </div>
+      <div id="errorBox" style="display:none" class="error-box"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Result</h2>
+      <div id="resultEmpty" class="empty">No evaluation yet — upload an image and click "Evaluate damage".</div>
+      <div id="resultBody" style="display:none">
+        <span id="sevBadge" class="sev-badge">—</span>
+
+        <div class="stat-row">
+          <div class="stat"><div class="v" id="statTotal">0</div><div class="k">Detections</div></div>
+          <div class="stat"><div class="v" id="statConf">—</div><div class="k">Max confidence</div></div>
+          <div class="stat"><div class="v" id="statMs">—</div><div class="k">Inference (ms)</div></div>
+        </div>
+
+        <table id="detTable">
+          <thead>
+            <tr><th>Class</th><th>Confidence</th><th>Severity</th><th>Box (x1, y1, x2, y2)</th></tr>
+          </thead>
+          <tbody id="detBody"></tbody>
+        </table>
+
+        <div class="meta-line">
+          <span><b id="metaModel">—</b></span>
+          <span>v<span id="metaVersion">—</span></span>
+          <span id="metaMock"></span>
+          <span>request <span id="metaReqId" class="mono" style="font-family: var(--mono)"></span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const apiBaseInput = $('apiBase');
+  const healthPill = $('healthPill');
+  const checkHealthBtn = $('checkHealthBtn');
+
+  const dropzone = $('dropzone');
+  const dzHint = $('dzHint');
+  const fileInput = $('fileInput');
+  const stage = $('stage');
+  const previewImg = $('preview');
+  const overlay = $('overlay');
+  const fileRow = $('fileRow');
+  const fileName = $('fileName');
+  const fileSize = $('fileSize');
+  const evaluateBtn = $('evaluateBtn');
+  const clearBtn = $('clearBtn');
+  const errorBox = $('errorBox');
+
+  const resultEmpty = $('resultEmpty');
+  const resultBody = $('resultBody');
+  const sevBadge = $('sevBadge');
+  const statTotal = $('statTotal');
+  const statConf = $('statConf');
+  const statMs = $('statMs');
+  const detBody = $('detBody');
+  const metaModel = $('metaModel');
+  const metaVersion = $('metaVersion');
+  const metaMock = $('metaMock');
+  const metaReqId = $('metaReqId');
+
+  const SEV_COLOR = {
+    none: '#6b7280',
+    minor: '#d69e2e',
+    moderate: '#dd6b20',
+    severe: '#e53e3e',
+  };
+
+  let selectedFile = null;
+
+  const savedBase = localStorage.getItem('irent.apiBase');
+  if (savedBase) apiBaseInput.value = savedBase;
+  apiBaseInput.addEventListener('change', () => {
+    localStorage.setItem('irent.apiBase', apiBaseInput.value.trim());
+  });
+
+  function apiBase() {
+    return apiBaseInput.value.trim().replace(/\/+$/, '');
+  }
+
+  function setHealth(state, label) {
+    healthPill.className = 'pill ' + state;
+    healthPill.innerHTML = '<span class="dot"></span>' + label;
+  }
+
+  async function checkHealth() {
+    setHealth('idle', 'checking…');
+    try {
+      const res = await fetch(apiBase() + '/api/v1/health');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const modelTag = data.model_is_mock ? data.model_name + ' (mock)' : data.model_name;
+      setHealth('ok', 'ok · ' + modelTag);
+    } catch (err) {
+      setHealth('bad', 'unreachable');
+    }
+  }
+  checkHealthBtn.addEventListener('click', checkHealth);
+
+  function showError(msg) {
+    errorBox.style.display = 'block';
+    errorBox.textContent = msg;
+  }
+  function clearError() {
+    errorBox.style.display = 'none';
+    errorBox.textContent = '';
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  function selectFile(file) {
+    if (!file) return;
+    clearError();
+    resultEmpty.style.display = 'block';
+    resultBody.style.display = 'none';
+
+    selectedFile = file;
+    const url = URL.createObjectURL(file);
+    previewImg.onload = () => {
+      dzHint.style.display = 'none';
+      stage.style.display = 'inline-block';
+      drawBoxes([]);
+    };
+    previewImg.src = url;
+
+    fileRow.style.display = 'flex';
+    fileName.textContent = file.name;
+    fileSize.textContent = '· ' + formatBytes(file.size);
+    evaluateBtn.disabled = false;
+  }
+
+  dropzone.addEventListener('click', (e) => {
+    if (e.target === fileInput) return;
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', () => selectFile(fileInput.files[0]));
+
+  ['dragenter', 'dragover'].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add('drag');
+    })
+  );
+  ['dragleave', 'drop'].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag');
+    })
+  );
+  dropzone.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) selectFile(file);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    previewImg.src = '';
+    stage.style.display = 'none';
+    dzHint.style.display = 'block';
+    fileRow.style.display = 'none';
+    evaluateBtn.disabled = true;
+    clearError();
+    resultEmpty.style.display = 'block';
+    resultBody.style.display = 'none';
+  });
+
+  function drawBoxes(detections) {
+    const w = previewImg.clientWidth;
+    const h = previewImg.clientHeight;
+    overlay.width = w;
+    overlay.height = h;
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    if (!detections.length) return;
+
+    const scaleX = w / previewImg.naturalWidth;
+    const scaleY = h / previewImg.naturalHeight;
+
+    detections.forEach((d) => {
+      const b = d.bounding_box;
+      const x = b.x1 * scaleX;
+      const y = b.y1 * scaleY;
+      const bw = (b.x2 - b.x1) * scaleX;
+      const bh = (b.y2 - b.y1) * scaleY;
+      const color = SEV_COLOR[d.severity] || '#e53e3e';
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.strokeRect(x, y, bw, bh);
+
+      const label = d.damage_class + '  ' + Math.round(d.confidence * 100) + '%';
+      ctx.font = '600 12px -apple-system, sans-serif';
+      const padX = 5;
+      const textW = ctx.measureText(label).width;
+      const labelH = 17;
+      const ly = Math.max(0, y - labelH);
+      ctx.fillStyle = color;
+      ctx.fillRect(x, ly, textW + padX * 2, labelH);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, x + padX, ly + 12.5);
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    if (stage.style.display !== 'none' && lastDetections) drawBoxes(lastDetections);
+  });
+
+  let lastDetections = [];
+
+  function sevClass(sev) { return 'sev-' + sev; }
+
+  function renderResult(data) {
+    resultEmpty.style.display = 'none';
+    resultBody.style.display = 'block';
+
+    sevBadge.textContent = data.overall_severity;
+    sevBadge.className = 'sev-badge ' + sevClass(data.overall_severity);
+
+    statTotal.textContent = data.summary.total_detections;
+    statConf.textContent = data.summary.max_confidence != null
+      ? Math.round(data.summary.max_confidence * 100) + '%'
+      : '—';
+    statMs.textContent = data.inference_ms.toFixed(1);
+
+    detBody.innerHTML = '';
+    data.detections.forEach((d) => {
+      const tr = document.createElement('tr');
+      const b = d.bounding_box;
+      tr.innerHTML =
+        '<td><span class="swatch" style="background:' + (SEV_COLOR[d.severity] || '#999') + '"></span>' + d.damage_class + '</td>' +
+        '<td>' + Math.round(d.confidence * 100) + '%</td>' +
+        '<td>' + d.severity + '</td>' +
+        '<td class="mono">' + [b.x1, b.y1, b.x2, b.y2].map((v) => Math.round(v)).join(', ') + '</td>';
+      detBody.appendChild(tr);
+    });
+    if (!data.detections.length) {
+      detBody.innerHTML = '<tr><td colspan="4" class="mono">No damage detected.</td></tr>';
+    }
+
+    metaModel.textContent = data.model_name;
+    metaVersion.textContent = data.model_version;
+    metaMock.textContent = data.is_mock ? '· mock detector' : '· real model';
+    metaReqId.textContent = data.request_id;
+
+    lastDetections = data.detections;
+    drawBoxes(lastDetections);
+  }
+
+  async function evaluate() {
+    if (!selectedFile) return;
+    clearError();
+    evaluateBtn.disabled = true;
+    evaluateBtn.innerHTML = '<span class="spinner"></span>Evaluating…';
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const res = await fetch(apiBase() + '/api/v1/damage/evaluate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const detail = payload && payload.error
+          ? payload.error.code + ': ' + payload.error.message + (payload.error.field ? ' (field: ' + payload.error.field + ')' : '')
+          : 'HTTP ' + res.status;
+        throw new Error(detail);
+      }
+
+      renderResult(payload);
+    } catch (err) {
+      showError('Request failed — ' + (err.message || err) + '. Is the API running and reachable at "' + apiBase() + '"?');
+      resultEmpty.style.display = 'block';
+      resultBody.style.display = 'none';
+    } finally {
+      evaluateBtn.disabled = false;
+      evaluateBtn.textContent = 'Evaluate damage';
+    }
+  }
+  evaluateBtn.addEventListener('click', evaluate);
+
+  checkHealth();
+})();
+</script>
+</body>
+</html>
