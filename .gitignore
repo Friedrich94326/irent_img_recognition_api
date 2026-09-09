@@ -36,3 +36,6 @@ Datasets/
 .idea/
 .vscode/
 .DS_Store
+
+# Other types
+*.pptx

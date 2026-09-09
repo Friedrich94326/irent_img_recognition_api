@@ -137,6 +137,45 @@ app/
 tests/               pytest suite (runs against the mock detector)
 ```
 
+## Dataset
+
+Training data for a real car-damage YOLOv8 model is
+[CarDD](https://cardd-ustc.github.io/) (`CarDD_release.zip`), which ships two label formats
+for the same underlying images:
+
+```
+CarDD_release/
+├── CarDD_COCO/                      # detection / instance-segmentation format (COCO JSON)
+│   ├── annotations/
+│   │   ├── image_info.xlsx
+│   │   ├── instances_train2017.json
+│   │   ├── instances_val2017.json
+│   │   └── instances_test2017.json
+│   ├── train2017/                   # 2,816 .jpg images
+│   ├── val2017/                     # 810 .jpg images
+│   └── test2017/                    # 374 .jpg images
+│
+└── CarDD_SOD/                       # salient-object-detection format (image/mask/edge triplets)
+    ├── CarDD-TR/                    # train, 2,816 samples
+    │   ├── CarDD-TR-Image/          # .jpg
+    │   ├── CarDD-TR-Mask/           # .png (binary mask)
+    │   └── CarDD-TR-Edge/           # .png (edge map)
+    ├── CarDD-VAL/                   # val, 810 samples
+    │   ├── CarDD-VAL-Image/
+    │   ├── CarDD-VAL-Mask/
+    │   └── CarDD-VAL-Edge/
+    └── CarDD-TE/                    # test, 374 samples
+        ├── CarDD-TE-Image/
+        ├── CarDD-TE-Mask/
+        └── CarDD-TE-Edge/
+```
+
+Files are zero-padded 6-digit ids (`000001.jpg` / `000001.png`) matched 1:1 across the
+Image/Mask/Edge subfolders within a split. `CarDD_COCO` is the split to train/evaluate the
+YOLOv8 detector against (`instances_*2017.json` map directly to the six damage classes);
+`CarDD_SOD` is only needed for pixel-level salient-object-detection experiments, not for the
+bounding-box detector this API uses.
+
 ## Tests
 
 ```bash

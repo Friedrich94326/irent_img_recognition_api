@@ -52,7 +52,7 @@ curl -s -F "file=@some-car.jpg" http://127.0.0.1:8000/api/v1/damage/evaluate
 ```
 
 ...or drive it visually with the bundled web client, which needs no build step: open
-`web/index.html` directly in a browser (or `python -m http.server 5500` from `web/` — use a
+`web/index.html` directly in a browser (or `exi` from `web/` — use a
 port other than 8000, since the API itself is already listening there). It defaults
 to `http://127.0.0.1:8000`, shows a live health pill, and lets you drag in a photo and see
 detections drawn as color-coded boxes over the image plus the summary/severity — good for
