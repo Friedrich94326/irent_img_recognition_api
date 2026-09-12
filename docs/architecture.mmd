@@ -20,6 +20,7 @@ flowchart TD
             Evaluate["POST /damage/evaluate<br/>routes/damage.py"]
             Health["GET /health<br/>routes/health.py"]
         end
+
     end
 
     subgraph pipeline["Request pipeline · per /damage/evaluate call"]
@@ -28,7 +29,6 @@ flowchart TD
         Predict["evaluator.predict()<br/>run in threadpool · anyio.to_thread"]
         Severity["severity.py<br/>enrich · summarize · derive_overall_severity"]
     end
-
     subgraph startup["Application startup · lifespan"]
         direction TB
         Settings["Settings<br/>IRENT_* env / .env"]

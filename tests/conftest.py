@@ -8,7 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.api.deps import get_evaluator
+from app.api.deps import get_evaluator, get_settings
+from app.config import Settings
 from app.main import create_app
 from app.services.evaluator import MockEvaluator
 
@@ -22,6 +23,9 @@ def evaluator() -> MockEvaluator:
 def client(evaluator: MockEvaluator) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_evaluator] = lambda: evaluator
+    # Isolate from any local .env (e.g. real YOLO weights configured for dev use)
+    # so tests reflect the mocked detector regardless of host machine config.
+    app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
     # The lifespan still runs and sets app.state.evaluator; the override wins for requests.
     with TestClient(app) as test_client:
         yield test_client
