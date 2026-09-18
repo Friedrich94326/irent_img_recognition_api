@@ -104,6 +104,14 @@ folder with `python -m http.server 5500`, picking a port other than 8000 since t
 already uses that one) with the API running — it defaults to
 `http://127.0.0.1:8000` but the base URL is editable in the page.
 
+`web/review.html` is a separate, offline viewer for auto-annotated datasets (see
+`.claude/skills/auto-annotate-dataset` and `scripts/validate_annotations.py`) — no API or
+server required. Open it directly in a browser, click "Choose dataset folder…" and pick a
+draft dataset directory (the one containing `review/` and `review_report.txt`), and it
+shows the rendered boxes as a filterable gallery, sorted and tagged by the same triage
+priority the validation script prints: zero-detection, no-claim-folder-with-detections,
+suspicious box size, then everything else.
+
 ## Using a real YOLOv8 model
 
 Set the weights path (env var or `.env`, see `.env.example`):

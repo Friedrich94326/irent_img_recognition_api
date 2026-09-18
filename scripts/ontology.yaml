@@ -1,0 +1,7 @@
+"a scratch on a car body panel": scratch
+"a dent on a car body panel": dent
+"rust on a car body panel": rust
+"a crack on a car bumper or panel": crack
+"a broken or shattered car window": glass_shatter
+"a broken car headlight or taillight": lamp_broken
+"a broken car side mirror": parts_broken

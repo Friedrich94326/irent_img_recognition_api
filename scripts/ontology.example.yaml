@@ -1,0 +1,17 @@
+# Template for scripts/auto_annotate.py's --ontology argument.
+#
+# Copy this file to scripts/ontology.yaml and edit it after looking at a sample of the
+# real images you're labeling (see .claude/skills/auto-annotate-dataset, step 1).
+#
+# Each key is a natural-language prompt fed to Grounding DINO; the value is the class
+# name that ends up in the generated YOLO labels. Keep prompts short and concrete -
+# describe what the damage looks like, not the outcome (e.g. "a scratch on a car body",
+# not "a car that needs repair"). Multiple prompts may map to the same class name.
+
+"a scratch on a car body panel": scratch
+"a dent on a car body panel": dent
+"rust on a car body panel": rust
+"a crack on a car bumper or panel": crack
+"a broken or shattered car window": glass_shatter
+"a broken car headlight or taillight": lamp_broken
+"a broken car side mirror": parts_broken

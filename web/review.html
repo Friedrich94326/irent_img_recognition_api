@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>iRent Annotation Review</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1b2129;
+    --text-dim: #667085;
+    --accent: #c1410c;
+    --accent-dim: #f7e6dc;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+    --flag-zero: #b91c1c;      --flag-zero-bg: #fee2e2;
+    --flag-noclaim: #a16207;   --flag-noclaim-bg: #fef3c7;
+    --flag-suspicious: #6d28d9; --flag-suspicious-bg: #ede9fe;
+    --flag-clean: #1a7f37;     --flag-clean-bg: #dcfce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f26;
+      --border: #2b2f38;
+      --text: #e6e8ec;
+      --text-dim: #9aa2b1;
+      --accent: #ff8a4c;
+      --accent-dim: #3a2417;
+
+      --flag-zero: #f85149;      --flag-zero-bg: #3b1618;
+      --flag-noclaim: #e0b23d;   --flag-noclaim-bg: #3a2f10;
+      --flag-suspicious: #b794f6; --flag-suspicious-bg: #2e2352;
+      --flag-clean: #3fb950;     --flag-clean-bg: #123321;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  header h1 { font-size: 20px; margin: 0; }
+  header .sub { color: var(--text-dim); font-size: 13px; }
+
+  .bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 18px;
+  }
+  .bar .status { font-size: 13px; color: var(--text-dim); }
+  .bar .status b { color: var(--text); }
+
+  button {
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    border-radius: 7px; padding: 8px 14px; transition: border-color .15s, background .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.06); }
+
+  .stat-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stat {
+    flex: 1; min-width: 130px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; cursor: pointer; user-select: none;
+  }
+  .stat.active { border-color: var(--accent); }
+  .stat .v { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+  .stat .k { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; margin-top: 2px; }
+
+  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar input[type=text] {
+    flex: 1; min-width: 200px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 10px; color: var(--text); font-size: 13px;
+  }
+  .toolbar input[type=text]:focus { outline: none; border-color: var(--accent); }
+
+  .empty { color: var(--text-dim); font-size: 13px; padding: 60px 0; text-align: center; }
+  .empty b { color: var(--text); }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; cursor: pointer; transition: border-color .15s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card .thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: var(--bg); }
+  .card .cap { padding: 8px 10px; }
+  .card .name { font-family: var(--mono); font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
+  .card .badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+
+  .badge {
+    display: inline-flex; align-items: center; font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .02em;
+  }
+  .badge.zero { color: var(--flag-zero); background: var(--flag-zero-bg); }
+  .badge.noclaim { color: var(--flag-noclaim); background: var(--flag-noclaim-bg); }
+  .badge.suspicious { color: var(--flag-suspicious); background: var(--flag-suspicious-bg); }
+  .badge.clean { color: var(--flag-clean); background: var(--flag-clean-bg); }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 18px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 0 0 12px; }
+  .class-list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .class-chip {
+    font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 7px; padding: 5px 10px;
+  }
+
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,.82); display: none;
+    align-items: center; justify-content: center; z-index: 50; padding: 30px;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox .box { max-width: 92vw; max-height: 92vh; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .lightbox img { max-width: 92vw; max-height: 78vh; object-fit: contain; border-radius: 8px; }
+  .lightbox .info { color: #fff; font-family: var(--mono); font-size: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .lightbox .nav { position: fixed; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,.1); color: #fff; border: none; border-radius: 50%; width: 44px; height: 44px; font-size: 20px; cursor: pointer; }
+  .lightbox .nav:hover { background: rgba(255,255,255,.2); }
+  .lightbox .nav.prev { left: 20px; }
+  .lightbox .nav.next { right: 20px; }
+  .lightbox .close { position: fixed; top: 20px; right: 24px; background: transparent; color: #fff; border: none; font-size: 26px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>iRent Annotation Review</h1>
+      <div class="sub">Local viewer for scripts/validate_annotations.py output — nothing leaves your browser</div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="pickBtn">Choose dataset folder…</button>
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none" />
+    <span class="status" id="status">Pick the draft dataset folder (the one containing <b>review/</b> and <b>review_report.txt</b>).</span>
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="stat-row" id="statRow"></div>
+
+    <div class="panel" id="classPanel" style="display:none">
+      <h2>Per-class detection counts</h2>
+      <div class="class-list" id="classList"></div>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Filter by filename…" />
+    </div>
+
+    <div id="grid" class="grid"></div>
+    <div id="emptyFiltered" class="empty" style="display:none">No images match this filter.</div>
+  </div>
+
+  <div id="emptyState" class="empty">No dataset loaded yet.</div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="nav prev" id="lbPrev">‹</button>
+  <button class="nav next" id="lbNext">›</button>
+  <button class="close" id="lbClose">×</button>
+  <div class="box">
+    <img id="lbImg" alt="" />
+    <div class="info" id="lbInfo"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const pickBtn = $('pickBtn');
+  const folderInput = $('folderInput');
+  const status = $('status');
+  const content = $('content');
+  const emptyState = $('emptyState');
+  const statRow = $('statRow');
+  const classPanel = $('classPanel');
+  const classList = $('classList');
+  const search = $('search');
+  const grid = $('grid');
+  const emptyFiltered = $('emptyFiltered');
+
+  const lightbox = $('lightbox');
+  const lbImg = $('lbImg');
+  const lbInfo = $('lbInfo');
+  const lbPrev = $('lbPrev');
+  const lbNext = $('lbNext');
+  const lbClose = $('lbClose');
+
+  const IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
+
+  let items = [];        // [{ name, url, tags: Set }]
+  let visible = [];      // filtered/sorted view of items, in display order
+  let activeFilter = 'all';
+  let lightboxIndex = -1;
+
+  pickBtn.addEventListener('click', () => folderInput.click());
+
+  folderInput.addEventListener('change', () => {
+    const files = Array.from(folderInput.files || []);
+    if (!files.length) return;
+    loadDataset(files);
+  });
+
+  function parseReport(text) {
+    const lines = text.split(/\r?\n/);
+    const result = { classCounts: [], zeroDetection: [], noClaim: [], suspicious: [] };
+    let mode = null;
+    for (const line of lines) {
+      if (/^Per-class detection counts:/.test(line)) { mode = 'class'; continue; }
+      if (/^\d+ image\(s\) with zero detections:/.test(line)) { mode = 'zero'; continue; }
+      if (/image\(s\) with detections \(likely false positives\):/.test(line)) { mode = 'noclaim'; continue; }
+      if (/^\d+ image\(s\) with a suspiciously tiny\/huge box:/.test(line)) { mode = 'suspicious'; continue; }
+      if (/^Suggested review order/.test(line)) { mode = null; continue; }
+      if (!line.trim()) continue;
+      if (mode === 'class') {
+        const m = line.match(/^\s*(.+):\s*(\d+)\s*$/);
+        if (m) result.classCounts.push({ name: m[1].trim(), count: parseInt(m[2], 10) });
+      } else if (mode) {
+        const m = line.match(/^\s*(\S.*\S|\S)\s*$/);
+        if (m) result[mode === 'zero' ? 'zeroDetection' : mode === 'noclaim' ? 'noClaim' : 'suspicious'].push(m[1]);
+      }
+    }
+    return result;
+  }
+
+  function loadDataset(files) {
+    let reportFile = null;
+    const imageFiles = [];
+
+    for (const file of files) {
+      const rel = file.webkitRelativePath || file.name;
+      const parts = rel.split('/');
+      const base = parts[parts.length - 1];
+      if (base.toLowerCase() === 'review_report.txt') {
+        reportFile = file;
+      } else if (parts.includes('review') && IMAGE_EXT.test(base)) {
+        imageFiles.push(file);
+      }
+    }
+
+    if (!imageFiles.length) {
+      status.textContent = 'No review/ images found in that folder. Pick the dataset root produced by validate_annotations.py.';
+      return;
+    }
+
+    const finish = (report) => {
+      const zeroSet = new Set(report ? report.zeroDetection : []);
+      const noClaimSet = new Set(report ? report.noClaim : []);
+      const suspiciousSet = new Set(report ? report.suspicious : []);
+
+      items = imageFiles.map((file) => {
+        const tags = new Set();
+        if (zeroSet.has(file.name)) tags.add('zero');
+        if (noClaimSet.has(file.name)) tags.add('noclaim');
+        if (suspiciousSet.has(file.name)) tags.add('suspicious');
+        if (!tags.size) tags.add('clean');
+        return { name: file.name, url: URL.createObjectURL(file), tags };
+      });
+
+      const priority = { zero: 0, noclaim: 1, suspicious: 2, clean: 3 };
+      items.sort((a, b) => {
+        const pa = Math.min(...[...a.tags].map((t) => priority[t]));
+        const pb = Math.min(...[...b.tags].map((t) => priority[t]));
+        if (pa !== pb) return pa - pb;
+        return a.name.localeCompare(b.name);
+      });
+
+      status.innerHTML = '<b>' + items.length + '</b> image(s) loaded' + (report ? '' : ' — no review_report.txt found, showing all as unflagged');
+      renderClassCounts(report ? report.classCounts : []);
+      renderStats();
+      applyFilter();
+      content.style.display = 'block';
+      emptyState.style.display = 'none';
+    };
+
+    if (reportFile) {
+      const reader = new FileReader();
+      reader.onload = () => finish(parseReport(reader.result));
+      reader.readAsText(reportFile, 'utf-8');
+    } else {
+      finish(null);
+    }
+  }
+
+  function renderClassCounts(classCounts) {
+    if (!classCounts.length) { classPanel.style.display = 'none'; return; }
+    classPanel.style.display = 'block';
+    classList.innerHTML = classCounts
+      .map((c) => '<span class="class-chip">' + escapeHtml(c.name) + ': ' + c.count + '</span>')
+      .join('');
+  }
+
+  function countByTag(tag) {
+    if (tag === 'all') return items.length;
+    return items.filter((it) => it.tags.has(tag)).length;
+  }
+
+  function renderStats() {
+    const defs = [
+      ['all', 'All images'],
+      ['zero', 'Zero detections'],
+      ['noclaim', 'No-claim + detected'],
+      ['suspicious', 'Suspicious box size'],
+      ['clean', 'Unflagged'],
+    ];
+    statRow.innerHTML = defs.map(([tag, label]) =>
+      '<div class="stat' + (activeFilter === tag ? ' active' : '') + '" data-tag="' + tag + '">' +
+        '<div class="v">' + countByTag(tag) + '</div><div class="k">' + label + '</div>' +
+      '</div>'
+    ).join('');
+    statRow.querySelectorAll('.stat').forEach((el) => {
+      el.addEventListener('click', () => {
+        activeFilter = el.dataset.tag;
+        renderStats();
+        applyFilter();
+      });
+    });
+  }
+
+  function applyFilter() {
+    const q = search.value.trim().toLowerCase();
+    visible = items.filter((it) => {
+      if (activeFilter !== 'all' && !it.tags.has(activeFilter)) return false;
+      if (q && !it.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    renderGrid();
+  }
+  search.addEventListener('input', applyFilter);
+
+  function badgeHtml(tags) {
+    const labels = { zero: 'Zero det.', noclaim: 'No-claim', suspicious: 'Suspicious', clean: 'Clean' };
+    return [...tags].map((t) => '<span class="badge ' + t + '">' + labels[t] + '</span>').join('');
+  }
+
+  function renderGrid() {
+    if (!visible.length) {
+      grid.innerHTML = '';
+      emptyFiltered.style.display = 'block';
+      return;
+    }
+    emptyFiltered.style.display = 'none';
+    grid.innerHTML = visible.map((it, i) =>
+      '<div class="card" data-i="' + i + '">' +
+        '<img class="thumb" src="' + it.url + '" loading="lazy" alt="' + escapeHtml(it.name) + '" />' +
+        '<div class="cap">' +
+          '<div class="name">' + escapeHtml(it.name) + '</div>' +
+          '<div class="badges">' + badgeHtml(it.tags) + '</div>' +
+        '</div>' +
+      '</div>'
+    ).join('');
+    grid.querySelectorAll('.card').forEach((el) => {
+      el.addEventListener('click', () => openLightbox(parseInt(el.dataset.i, 10)));
+    });
+  }
+
+  function openLightbox(index) {
+    lightboxIndex = index;
+    showLightboxItem();
+    lightbox.classList.add('open');
+  }
+  function showLightboxItem() {
+    const it = visible[lightboxIndex];
+    if (!it) return;
+    lbImg.src = it.url;
+    lbImg.alt = it.name;
+    lbInfo.innerHTML = escapeHtml(it.name) + '&nbsp;&nbsp;' + badgeHtml(it.tags) +
+      '&nbsp;&nbsp;(' + (lightboxIndex + 1) + ' / ' + visible.length + ')';
+  }
+  function closeLightbox() { lightbox.classList.remove('open'); }
+  function stepLightbox(delta) {
+    if (!visible.length) return;
+    lightboxIndex = (lightboxIndex + delta + visible.length) % visible.length;
+    showLightboxItem();
+  }
+  lbPrev.addEventListener('click', () => stepLightbox(-1));
+  lbNext.addEventListener('click', () => stepLightbox(1));
+  lbClose.addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+  document.addEventListener('keydown', (e) => {
+    if (!lightbox.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft') stepLightbox(-1);
+    if (e.key === 'ArrowRight') stepLightbox(1);
+  });
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+})();
+</script>
+</body>
+</html>

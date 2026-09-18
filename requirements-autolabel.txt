@@ -1,0 +1,11 @@
+# Offline dataset auto-labeling tooling (scripts/auto_annotate.py).
+# Not used by the API at runtime and not needed for tests/CI - install only when
+# you're about to auto-annotate a new dataset with a custom, open-vocabulary
+# class list (see .claude/skills/auto-annotate-dataset).
+autodistill>=0.1.29
+autodistill-grounding-dino>=0.1.3
+supervision>=0.21
+pyyaml>=6.0
+scikit-learn>=1.4  # imported by autodistill.core.embedding_ontology but missing from its own deps
+roboflow>=1.4  # imported by autodistill.detection.detection_base_model but missing from its own deps
+transformers<5.0  # rf-groundingdino's BERT wrapper uses a PreTrainedModel API removed in transformers 5.x
