@@ -1,0 +1,16 @@
+flowchart TD
+    subgraph S1["1. 原始影像載入 (Data Ingestion)"]
+        A[用戶上傳車況照片<br/>例如：夜間/地下室車身或車牌照片] --> B["讀取 EXIF 轉向資訊<br/>OpenCV 載入影像 (預設 BGR 格式)"]
+    end
+
+    subgraph S2["2. 影像前處理管道 (Image Pre-processing)"]
+        B --> C1[方向校正與色彩空間轉換<br/>EXIF 自動轉正 + BGR 轉 RGB]
+        C1 --> C2["對比度自適應增強 (CLAHE)<br/>突顯車漆暗影、淺凹痕與微小劃痕"]
+        C2 --> C3["雙邊濾波去噪 (Bilateral Filtering)<br/>消除車身漆面強光反光與感光雜訊"]
+        C3 --> C4["等比例縮放與補邊 (Letterboxing)<br/>保持原圖長寬比，縮放至 640x640 並補灰色邊框"]
+        C4 --> C5["張量轉換與數值歸一化 (Normalization)<br/>像素 [0, 255] -> [0.0, 1.0]，轉為 (1, 3, 640, 640) Tensor"]
+    end
+
+    subgraph S3["3. 特徵輸入準備 (Model Input)"]
+        C5 --> D[標準化模型輸入張量<br/>併行送入 YOLOv8 車損檢測與 OCR 車牌辨識引擎]
+    end

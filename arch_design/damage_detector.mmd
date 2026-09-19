@@ -1,0 +1,35 @@
+flowchart TD
+    subgraph Layer1["1. Data Ingestion & Storage"]
+        A[Image Input / User Photo Upload] --> B[Google Cloud Storage GCS Bucket]
+    end
+
+    subgraph Layer2["2. Pre-Processing Pipeline"]
+        B --> C1[EXIF Orientation & BGR-to-RGB Conversion]
+        C1 --> C2[CLAHE Contrast Enhancement]
+        C2 --> C3[Bilateral Noise & Glare Reduction Filter]
+        C3 --> C4[Aspect-Ratio Preserving Letterbox Resizing 640x640]
+        C4 --> C5[Tensor Normalization & Channel Permutation]
+    end
+
+    subgraph Layer3["3. Parallel Inference Engine"]
+        C5 --> D1[YOLOv8 Damage Detection Model]
+        C5 --> D2[License Plate OCR Detector]
+
+        D1 --> E1[Damage Bounding Boxes & Classes<br/>Dent, Scratch, Crack, Paint Peeling, Broken Lamp]
+        D2 --> E2[Extracted License Plate ID<br/>e.g., RDL-7836]
+    end
+
+    subgraph Layer4["4. Severity Assessment & Fee Valuation"]
+        E1 --> F1[Damage Severity Index Calculation<br/>Box Area Ratio, Instance Count, Confidence]
+        F1 --> F2[Severity Categorization<br/>Severe / Medium / Low / No Damage]
+        F2 --> F3[XGBoost Maintenance Fee Estimator]
+        F3 --> F4[Calculated Maintenance Cost]
+    end
+
+    subgraph Layer5["5. Persistence & Operations Layer"]
+        E2 --> G1[(Firestore NoSQL Inspection Logs)]
+        E1 --> G1
+        F4 --> G1
+        G1 --> G2[(Cloud SQL / AlloyDB OLTP Database)]
+        G2 --> H[Operations Dashboard & Dispatch Work Order]
+    end
