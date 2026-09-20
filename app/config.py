@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     yolo_iou_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     yolo_device: str = "cpu"
 
+    # --- License plate OCR -------------------------------------------------
+    plate_use_mock: bool = Field(
+        default=False, description="Force the mock plate recognizer (skips loading EasyOCR)."
+    )
+    plate_use_opencv_locator: bool = Field(
+        default=True,
+        description="Crop plate-shaped regions with OpenCV before OCR (else OCR the full image).",
+    )
+    plate_min_confidence: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence to report text that does not match a plate format.",
+    )
+
     # --- Upload constraints ----------------------------------------------
     max_image_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     allowed_content_types: set[str] = {"image/jpeg", "image/png", "image/webp"}

@@ -13,6 +13,7 @@ from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.services.evaluator import build_evaluator
+from app.services.plate_recognizer import build_plate_recognizer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,8 +26,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info(
         "Detector ready: %s (mock=%s)", app.state.evaluator.name, app.state.evaluator.is_mock
     )
+    app.state.plate_recognizer = build_plate_recognizer(settings)
+    logger.info("Plate recognizer ready: %s", app.state.plate_recognizer.name)
     yield
     app.state.evaluator = None
+    app.state.plate_recognizer = None
 
 
 def create_app() -> FastAPI:

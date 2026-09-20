@@ -12,3 +12,6 @@ anyio>=4.4
 # Real inference (pulls in torch - large download):
 ultralytics>=8.2
 numpy>=1.26
+opencv-python-headless>=4.9  # plate localisation
+# License-plate OCR; without it the API falls back to the mock plate recognizer.
+easyocr>=1.7

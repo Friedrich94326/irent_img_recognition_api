@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,12 @@ from app.config import Settings
 from app.main import create_app
 from app.services.evaluator import MockEvaluator
 
+# Keep tests fast and hermetic: never load EasyOCR during app startup.
+os.environ.setdefault("IRENT_PLATE_USE_MOCK", "true")
+
 
 @pytest.fixture
-def evaluator() -> MockEvaluator:
+def evaluator()-> MockEvaluator:
     return MockEvaluator(version="test")
 
 
