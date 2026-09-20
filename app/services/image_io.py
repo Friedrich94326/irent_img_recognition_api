@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 
 from fastapi import UploadFile
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.config import Settings
 from app.core.exceptions import (
@@ -62,7 +62,9 @@ async def load_upload(
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise InvalidImageError("Uploaded file is not a readable image.", field="file") from exc
 
-    rgb = image.convert("RGB")
+    # Phones store portrait shots sideways plus an EXIF rotation tag; apply it so detectors see
+    # the image upright and returned box coordinates match what a browser displays.
+    rgb = ImageOps.exif_transpose(image).convert("RGB")
     metadata = ImageMetadata(
         filename=file.filename,
         content_type=content_type,

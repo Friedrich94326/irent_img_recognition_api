@@ -160,6 +160,18 @@
     border-top-color: #fff; display: inline-block; animation: spin .7s linear infinite; margin-right: 6px; vertical-align: -2px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  button.spin-dark .spinner { border-color: var(--border); border-top-color: var(--accent); }
+
+  .plate-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; background: var(--bg); }
+  .plate-card h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+  .plate-number {
+    display: inline-block; font-family: var(--mono); font-size: 28px; font-weight: 800; letter-spacing: .08em;
+    padding: 6px 18px; border-radius: 6px; background: #fff; color: #111; border: 3px solid #111;
+  }
+  .plate-none { color: var(--text-dim); font-size: 13px; }
+  .plate-meta { font-size: 12px; color: var(--text-dim); margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .plate-meta b { color: var(--text); font-weight: 600; }
+  .plate-alt { font-size: 12px; color: var(--text-dim); margin-top: 8px; font-family: var(--mono); overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -197,6 +209,7 @@
       </div>
       <div class="actions">
         <button class="primary" id="evaluateBtn" disabled>Evaluate damage</button>
+        <button id="plateBtn" disabled>Read license plate</button>
         <button id="clearBtn">Clear</button>
       </div>
       <div id="errorBox" style="display:none" class="error-box"></div>
@@ -204,7 +217,13 @@
 
     <div class="panel">
       <h2>Result</h2>
-      <div id="resultEmpty" class="empty">No evaluation yet — upload an image and click "Evaluate damage".</div>
+      <div id="plateCard" class="plate-card" style="display:none">
+        <h3>License plate</h3>
+        <div id="plateValue"></div>
+        <div class="plate-meta" id="plateMeta"></div>
+        <div class="plate-alt" id="plateAlt"></div>
+      </div>
+      <div id="resultEmpty" class="empty">No evaluation yet — upload an image and click "Evaluate damage" or "Read license plate".</div>
       <div id="resultBody" style="display:none">
         <span id="sevBadge" class="sev-badge">—</span>
 
@@ -251,6 +270,11 @@
   const fileSize = $('fileSize');
   const evaluateBtn = $('evaluateBtn');
   const clearBtn = $('clearBtn');
+  const plateBtn = $('plateBtn');
+  const plateCard = $('plateCard');
+  const plateValue = $('plateValue');
+  const plateMeta = $('plateMeta');
+  const plateAlt = $('plateAlt');
   const errorBox = $('errorBox');
 
   const resultEmpty = $('resultEmpty');
@@ -323,6 +347,9 @@
     clearError();
     resultEmpty.style.display = 'block';
     resultBody.style.display = 'none';
+    plateCard.style.display = 'none';
+    lastDetections = [];
+    lastPlates = [];
 
     selectedFile = file;
     const url = URL.createObjectURL(file);
@@ -337,6 +364,7 @@
     fileName.textContent = file.name;
     fileSize.textContent = '· ' + formatBytes(file.size);
     evaluateBtn.disabled = false;
+    plateBtn.disabled = false;
   }
 
   dropzone.addEventListener('click', (e) => {
@@ -370,10 +398,32 @@
     dzHint.style.display = 'block';
     fileRow.style.display = 'none';
     evaluateBtn.disabled = true;
+    plateBtn.disabled = true;
     clearError();
     resultEmpty.style.display = 'block';
     resultBody.style.display = 'none';
+    plateCard.style.display = 'none';
+    lastDetections = [];
+    lastPlates = [];
   });
+
+  const PLATE_COLOR = '#2563eb';
+
+  function drawLabeledBox(ctx, b, scaleX, scaleY, color, label) {
+    const x = b.x1 * scaleX;
+    const y = b.y1 * scaleY;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.strokeRect(x, y, (b.x2 - b.x1) * scaleX, (b.y2 - b.y1) * scaleY);
+    ctx.font = '600 12px -apple-system, sans-serif';
+    const padX = 5;
+    const labelH = 17;
+    const ly = Math.max(0, y - labelH);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, ly, ctx.measureText(label).width + padX * 2, labelH);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, x + padX, ly + 12.5);
+  }
 
   function drawBoxes(detections) {
     const w = previewImg.clientWidth;
@@ -382,10 +432,17 @@
     overlay.height = h;
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, w, h);
-    if (!detections.length) return;
+    if (!detections.length && !lastPlates.length) return;
 
     const scaleX = w / previewImg.naturalWidth;
     const scaleY = h / previewImg.naturalHeight;
+
+    lastPlates.forEach((p) => {
+      if (p.bounding_box) {
+        drawLabeledBox(ctx, p.bounding_box, scaleX, scaleY, PLATE_COLOR,
+          p.plate_number + '  ' + Math.round(p.confidence * 100) + '%');
+      }
+    });
 
     detections.forEach((d) => {
       const b = d.bounding_box;
@@ -417,6 +474,7 @@
   });
 
   let lastDetections = [];
+  let lastPlates = [];
 
   function sevClass(sev) { return 'sev-' + sev; }
 
@@ -457,6 +515,76 @@
     drawBoxes(lastDetections);
   }
 
+  async function postImage(path) {
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    const res = await fetch(apiBase() + path, { method: 'POST', body: formData });
+    const payload = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      const detail = payload && payload.error
+        ? payload.error.code + ': ' + payload.error.message + (payload.error.field ? ' (field: ' + payload.error.field + ')' : '')
+        : 'HTTP ' + res.status;
+      throw new Error(detail);
+    }
+    return payload;
+  }
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function renderPlate(data) {
+    plateCard.style.display = 'block';
+    plateValue.replaceChildren();
+    plateMeta.replaceChildren();
+    plateAlt.textContent = '';
+
+    const best = data.best_plate;
+    if (best) {
+      plateValue.appendChild(el('span', 'plate-number', best.plate_number));
+      const conf = el('span'); conf.append('confidence ', el('b', null, Math.round(best.confidence * 100) + '%'));
+      const ms = el('span'); ms.append(el('b', null, data.inference_ms.toFixed(0)), ' ms');
+      plateMeta.append(conf, ms, el('span', null, data.model_name + (data.is_mock ? ' · mock (not a real read)' : '')));
+    } else {
+      plateValue.appendChild(el('div', 'plate-none', 'No valid license plate found in this image.'));
+      plateMeta.appendChild(el('span', null, data.model_name + (data.is_mock ? ' · mock' : '')));
+    }
+
+    const others = data.plates.filter((p) => p !== best && p.plate_number !== (best && best.plate_number));
+    if (others.length) {
+      plateAlt.textContent = 'Other text: ' + others
+        .map((p) => p.raw_text + ' (' + Math.round(p.confidence * 100) + '%' + (p.valid_format ? '' : ', invalid format') + ')')
+        .join(' · ');
+    }
+
+    lastPlates = data.plates.filter((p) => p.valid_format);
+    drawBoxes(lastDetections);
+  }
+
+  async function readPlate() {
+    if (!selectedFile) return;
+    clearError();
+    plateBtn.disabled = true;
+    plateBtn.classList.add('spin-dark');
+    plateBtn.innerHTML = '<span class="spinner"></span>Reading…';
+
+    try {
+      renderPlate(await postImage('/api/v1/plate/recognize'));
+    } catch (err) {
+      showError('Plate request failed — ' + (err.message || err) + '. Is the API running and reachable at "' + apiBase() + '"?');
+    } finally {
+      plateBtn.disabled = false;
+      plateBtn.classList.remove('spin-dark');
+      plateBtn.textContent = 'Read license plate';
+    }
+  }
+  plateBtn.addEventListener('click', readPlate);
+
   async function evaluate() {
     if (!selectedFile) return;
     clearError();
@@ -464,24 +592,7 @@
     evaluateBtn.innerHTML = '<span class="spinner"></span>Evaluating…';
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const res = await fetch(apiBase() + '/api/v1/damage/evaluate', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const payload = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const detail = payload && payload.error
-          ? payload.error.code + ': ' + payload.error.message + (payload.error.field ? ' (field: ' + payload.error.field + ')' : '')
-          : 'HTTP ' + res.status;
-        throw new Error(detail);
-      }
-
-      renderResult(payload);
+      renderResult(await postImage('/api/v1/damage/evaluate'));
     } catch (err) {
       showError('Request failed — ' + (err.message || err) + '. Is the API running and reachable at "' + apiBase() + '"?');
       resultEmpty.style.display = 'block';

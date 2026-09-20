@@ -29,6 +29,12 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(description="Whether a detector is ready to serve requests.")
     model_is_mock: bool = Field(description="True when the built-in mock detector is active.")
     model_name: str
+    plate_model_name: str | None = Field(
+        default=None, description="License-plate recogniser in use, e.g. 'opencv+easyocr'."
+    )
+    plate_is_mock: bool | None = Field(
+        default=None, description="True when the plate recogniser is the built-in mock."
+    )
     weights_path: str | None = Field(
         default=None, description="Configured YOLOv8 weights path, if any."
     )

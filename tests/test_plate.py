@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import io
+
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from app.api.deps import get_plate_recognizer
+from app.config import Settings
 from app.schemas.plate import PlateRecognitionResponse
 from app.services.plate_locator import locate_plate_regions
 from app.services.plate_recognizer import (
     EasyOCRPlateRecognizer,
     PlateRecognizer,
     RawPlate,
+    build_plate_recognizer,
     format_plate,
 )
 
@@ -107,3 +111,39 @@ def test_recognizer_reads_crop_and_offsets_boxes() -> None:
     assert rec._reader.shapes[0][1] < 800  # OCR ran on a crop, not the full frame
     assert plates[0].xyxy[0] > 0  # crop origin added back to coordinates
     assert len(rec._reader.shapes) == len(locate_plate_regions(_scene_with_plate()))
+
+
+def test_format_plate_maps_letter_o_to_q() -> None:
+    # Taiwan plates never use the letter O, so OCR's 'O' in a letter slot is a 'Q'.
+    assert format_plate("RCO-6760") == "RCQ-6760"
+
+
+def test_build_plate_recognizer_raises_instead_of_mocking(monkeypatch) -> None:
+    def boom(self, *args, **kwargs):
+        raise ImportError("No module named 'easyocr'")
+
+    monkeypatch.setattr(EasyOCRPlateRecognizer, "__init__", boom)
+    with pytest.raises(RuntimeError, match="IRENT_PLATE_USE_MOCK"):
+        build_plate_recognizer(Settings(_env_file=None, plate_use_mock=False))
+
+
+def test_build_plate_recognizer_mock_only_when_requested() -> None:
+    rec = build_plate_recognizer(Settings(_env_file=None, plate_use_mock=True))
+    assert rec.is_mock
+
+
+def test_upload_applies_exif_rotation(client: TestClient) -> None:
+    img = Image.new("RGB", (40, 20), (200, 30, 30))
+    exif = Image.Exif()
+    exif[274] = 6  # Orientation: rotate 270 to display -> portrait
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+    resp = client.post(ENDPOINT, files={"file": ("p.jpg", buf.getvalue(), "image/jpeg")})
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["image"]["width"], resp.json()["image"]["height"]) == (20, 40)
+
+
+def test_health_reports_plate_recognizer(client: TestClient) -> None:
+    body = client.get("/api/v1/health").json()
+    assert body["plate_model_name"]
+    assert body["plate_is_mock"] is True  # tests force the mock via IRENT_PLATE_USE_MOCK

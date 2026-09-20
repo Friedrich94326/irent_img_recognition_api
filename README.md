@@ -47,6 +47,7 @@ for.
 | ------ | -------------------------- | ---------------------------------------- |
 | GET    | `/api/v1/health`           | Service status + which detector is loaded |
 | POST   | `/api/v1/damage/evaluate`  | `multipart/form-data` with one image `file` |
+| POST   | `/api/v1/plate/recognize`  | `multipart/form-data` with one image `file`; returns the license plate (`ABC-1234`) |
 | GET    | `/docs`                    | Swagger UI                               |
 
 ### `POST /api/v1/damage/evaluate`
@@ -73,6 +74,21 @@ Response `200` (`DamageEvaluationResponse`):
 
 Errors use one envelope: `{ "error": { "code", "message", "field" } }` — `415`
 unsupported type, `413` too large, `422` unreadable image / missing file.
+
+### `POST /api/v1/plate/recognize`
+
+Same request shape as above. OpenCV finds plate-shaped regions, EasyOCR reads them, and the
+text is normalised to Taiwan plate formats. Returns `plates[]`, `best_plate` (highest-confidence
+valid plate or `null`), `model_name` and `is_mock`.
+
+- Needs `pip install easyocr` (models download to `~/.EasyOCR` on first run). If it can't load,
+  **startup fails** rather than serving fake plates; set `IRENT_PLATE_USE_MOCK=true` to run with a
+  deterministic fake recogniser (`is_mock: true`). `/api/v1/health` shows which one is live.
+- Accuracy is measured against the real photos, whose filenames carry the plate:
+  `python scripts/evaluate_plate_recognition.py --limit 30`. Many of those are damage close-ups
+  where the plate is cut off or tiny, so per-image accuracy is limited by the photos themselves;
+  on CPU expect several seconds per image.
+- Uploads are EXIF-rotated upright before inference (affects the damage endpoint too).
 
 ## Quick start
 
