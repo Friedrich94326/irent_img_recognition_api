@@ -12,15 +12,17 @@ import hashlib
 import logging
 import re
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass
 
+import cv2
 import numpy as np
 from PIL import Image
 
 from app.config import Settings
 from app.schemas.common import BoundingBox
 from app.schemas.plate import PlateReading
-from app.services.plate_locator import locate_plate_regions
+from app.services.plate_locator import four_point_transform, locate_plate_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,16 @@ _TO_LETTER = str.maketrans("0158", "QISB")
 # Taiwan plates never use the letter 'O' (too close to '0'), so a letter-position 'O' is a 'Q'.
 _FIX_LETTERS = str.maketrans("O", "Q")
 _WORK_SIDE = 1600  # longest side, px, for locating plates / full-frame OCR
-_MIN_CROP_WIDTH = 320  # upscale smaller plate crops to at least this width before OCR
+_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+# Glyphs that frame edges, screws and stickers get read as; only ever stripped from the *front* of
+# an over-long letter run (e.g. 'IRCK9206' -> 'RCK9206').
+_LEADING_NOISE = "ILJ"
+_LONG_LETTER_RUN_RE = re.compile(r"(?P<letters>[A-Z]{4,})(?P<digits>\d{3,4})")
+_CLAHE_CLIP = 2.0
+_BORDER_TRIM_FRAC = 0.04  # share of each side blanked so the plate frame is not read as glyphs
+# Visually close pairs; used to offer an alternative reading, never to overwrite the original.
+_LETTER_SWAPS = str.maketrans("KW", "WK")
+_ALT_CONFIDENCE_FACTOR = 0.5
 
 
 @dataclass(frozen=True)
@@ -49,10 +60,22 @@ def _clean(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", text.upper())
 
 
+def _strip_leading_noise(cleaned: str) -> str:
+    """Drop leading I/L/J artefacts while the letter run is longer than the 3 a plate allows."""
+
+    m = _LONG_LETTER_RUN_RE.fullmatch(cleaned)
+    if not m:
+        return cleaned
+    letters = m.group("letters")
+    while len(letters) > 3 and letters[0] in _LEADING_NOISE:
+        letters = letters[1:]
+    return letters + m.group("digits")
+
+
 def format_plate(text: str) -> str | None:
     """Return ``text`` as a hyphenated Taiwan plate (e.g. ``ABC-1234``) or ``None``."""
 
-    cleaned = _clean(text)
+    cleaned = _strip_leading_noise(_clean(text))
     m = _PLATE_RE.fullmatch(cleaned)
     if m:
         if m.group("letters"):
@@ -67,6 +90,30 @@ def format_plate(text: str) -> str | None:
                 if letters.isalpha() and digits.isdigit():
                     return f"{letters}-{digits}"
     return None
+
+
+def preprocess_plate(warped_rgb: np.ndarray) -> list[np.ndarray]:
+    """Return same-size grayscale variants of a straightened plate crop, best guess first.
+
+    1. CLAHE-equalised gray: local contrast makes glyph edges crisp under glare / shadow.
+    2. Otsu-binarised with the outer frame blanked: removes the plate border that OCR otherwise
+       reads as a leading 'I' / 'L'.
+
+    Variants keep the crop's size so OCR boxes map back through one perspective matrix.
+    """
+
+    gray = cv2.cvtColor(warped_rgb, cv2.COLOR_RGB2GRAY)
+    gray = cv2.bilateralFilter(gray, 7, 40, 40)  # denoise, keep glyph edges
+    equalised = cv2.createCLAHE(clipLimit=_CLAHE_CLIP, tileGridSize=(4, 4)).apply(gray)
+    _, binary = cv2.threshold(equalised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    trimmed = binary.copy()
+    background = 255 if binary.mean() > 127 else 0  # plates are dark glyphs on a light plate
+    h, w = trimmed.shape
+    dy, dx = max(1, round(h * _BORDER_TRIM_FRAC)), max(1, round(w * _BORDER_TRIM_FRAC))
+    trimmed[:dy, :] = trimmed[-dy:, :] = background
+    trimmed[:, :dx] = trimmed[:, -dx:] = background
+    return [equalised, trimmed]
 
 
 class PlateRecognizer(ABC):
@@ -109,28 +156,37 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
 
     def _ocr(
         self,
-        image: Image.Image,
-        origin: tuple[int, int] = (0, 0),
+        image: Image.Image | np.ndarray,
         scale: float = 1.0,
+        to_original: np.ndarray | None = None,
     ) -> list[RawPlate]:
-        """OCR ``image``; ``scale`` maps pixels to the original image, ``origin`` then shifts."""
+        """OCR ``image``.
 
-        results = self._reader.readtext(
-            np.asarray(image),
-            allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
-            detail=1,
-        )
-        ox, oy = origin
+        Boxes are mapped back to the original photo either by ``scale`` (plain resize) or, for a
+        perspective-corrected crop, by ``to_original`` (the inverse of the warp matrix).
+        """
+
+        results = self._reader.readtext(np.asarray(image), allowlist=_ALLOWLIST, detail=1)
         plates: list[RawPlate] = []
         for points, text, conf in results:
-            xs = [p[0] * scale + ox for p in points]
-            ys = [p[1] * scale + oy for p in points]
-            plates.append(RawPlate(text, float(conf), (min(xs), min(ys), max(xs), max(ys))))
+            pts = np.asarray(points, dtype="float32").reshape(-1, 1, 2)
+            if to_original is not None:
+                pts = cv2.perspectiveTransform(pts, to_original)
+            else:
+                pts = pts * scale
+            xs, ys = pts[:, 0, 0], pts[:, 0, 1]
+            plates.append(
+                RawPlate(
+                    text,
+                    float(conf),
+                    (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())),
+                )
+            )
         return plates
 
     def read(self, image: Image.Image) -> list[RawPlate]:
         # Locate and run the full-frame fallback on a downscaled copy (phone photos are huge and
-        # OCR on them is slow); crops are cut from the original so small plates keep their detail.
+        # OCR on them is slow); plates are warped from the original so small ones keep detail.
         scale = min(1.0, _WORK_SIDE / max(image.size))
         work = image if scale == 1.0 else image.resize(
             (round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS
@@ -138,17 +194,15 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
 
         found: list[RawPlate] = []
         if self._use_locator:
-            for bx1, by1, bx2, by2 in locate_plate_regions(work):
-                x1, y1, x2, y2 = (round(v / scale) for v in (bx1, by1, bx2, by2))
-                crop = image.crop((x1, y1, x2, y2))
-                if crop.width < _MIN_CROP_WIDTH:
-                    up = _MIN_CROP_WIDTH / crop.width
-                    crop = crop.resize(
-                        (_MIN_CROP_WIDTH, round(crop.height * up)), Image.Resampling.LANCZOS
-                    )
-                    found.extend(self._ocr(crop, origin=(x1, y1), scale=1 / up))
-                else:
-                    found.extend(self._ocr(crop, origin=(x1, y1)))
+            original = np.asarray(image.convert("RGB"))
+            for cand in locate_plate_candidates(work):
+                try:
+                    warped, matrix = four_point_transform(original, cand.quad / scale)
+                    to_original = np.linalg.inv(matrix)
+                except (ValueError, np.linalg.LinAlgError, cv2.error):
+                    continue  # degenerate quad; try the next candidate
+                for variant in preprocess_plate(warped):
+                    found.extend(self._ocr(variant, to_original=to_original))
             if any(format_plate(p.text) for p in found):
                 return found
 
@@ -204,9 +258,33 @@ def resolve_plates(
     candidates = ([merged] if merged else []) + raws
     plates = [_to_reading(r, size) for r in candidates]
     plates = [p for p in plates if p.valid_format or p.confidence >= min_confidence]
-    plates.sort(key=lambda p: (p.valid_format, p.confidence), reverse=True)
+
+    # The same plate read from several preprocessing variants is more trustworthy than one read.
+    votes = Counter(p.plate_number for p in plates if p.valid_format)
+    # Offer the K<->W lookalike as a lower-ranked alternative; without a plate registry the text
+    # alone cannot say which is right, so the original reading always stays on top.
+    alternatives = [_lookalike_alternative(p) for p in plates if p.valid_format]
+    plates += [a for a in alternatives if a is not None and a.plate_number not in votes]
+
+    plates.sort(
+        key=lambda p: (p.valid_format, votes.get(p.plate_number, 0), p.confidence), reverse=True
+    )
     best = next((p for p in plates if p.valid_format), None)
     return plates, best
+
+
+def _lookalike_alternative(reading: PlateReading) -> PlateReading | None:
+    """A copy of ``reading`` with K/W swapped in its letters, at reduced confidence."""
+
+    swapped = reading.plate_number.translate(_LETTER_SWAPS)  # digits and '-' are unaffected
+    if swapped == reading.plate_number:
+        return None
+    return reading.model_copy(
+        update={
+            "plate_number": swapped,
+            "confidence": reading.confidence * _ALT_CONFIDENCE_FACTOR,
+        }
+    )
 
 
 def build_plate_recognizer(settings: Settings) -> PlateRecognizer:

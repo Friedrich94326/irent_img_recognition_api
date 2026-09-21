@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 
+import cv2
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
@@ -9,13 +11,15 @@ from PIL import Image, ImageDraw
 from app.api.deps import get_plate_recognizer
 from app.config import Settings
 from app.schemas.plate import PlateRecognitionResponse
-from app.services.plate_locator import locate_plate_regions
+from app.services.plate_locator import four_point_transform, locate_plate_regions
 from app.services.plate_recognizer import (
     EasyOCRPlateRecognizer,
     PlateRecognizer,
     RawPlate,
     build_plate_recognizer,
     format_plate,
+    preprocess_plate,
+    resolve_plates,
 )
 
 ENDPOINT = "/api/v1/plate/recognize"
@@ -110,7 +114,57 @@ def test_recognizer_reads_crop_and_offsets_boxes() -> None:
     assert plates[0].text == "ABC-1234"
     assert rec._reader.shapes[0][1] < 800  # OCR ran on a crop, not the full frame
     assert plates[0].xyxy[0] > 0  # crop origin added back to coordinates
-    assert len(rec._reader.shapes) == len(locate_plate_regions(_scene_with_plate()))
+    # every located candidate is OCR'd once per preprocessing variant
+    variants = len(preprocess_plate(np.zeros((40, 80, 3), dtype=np.uint8)))
+    assert len(rec._reader.shapes) == variants * len(locate_plate_regions(_scene_with_plate()))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("IRCK9206", "RCK-9206"),  # leading 'I' artefact removed (K vs W is left to alternatives)
+        ("LRCW9206", "RCW-9206"),
+        ("RCW-9206", "RCW-9206"),
+        ("RCW 9206", "RCW-9206"),
+        ("IABCD1234", None),  # still too many letters after stripping noise
+    ],
+)
+def test_format_plate_strips_leading_noise(text: str, expected: str | None) -> None:
+    assert format_plate(text) == expected
+
+
+def test_resolve_plates_offers_k_w_alternative_below_original() -> None:
+    raws = [RawPlate("IRCK9206", 0.8, (0, 0, 100, 40))]
+    plates, best = resolve_plates(raws, (200, 100), 0.5)
+    assert best is not None and best.plate_number == "RCK-9206"
+    assert [p.plate_number for p in plates] == ["RCK-9206", "RCW-9206"]
+
+
+def test_resolve_plates_prefers_plate_seen_in_more_variants() -> None:
+    raws = [
+        RawPlate("RCW9206", 0.6, (0, 0, 100, 40)),
+        RawPlate("RCW9206", 0.6, (0, 0, 100, 40)),
+        RawPlate("RCK9206", 0.9, (0, 0, 100, 40)),
+    ]
+    _, best = resolve_plates(raws, (200, 100), 0.5)
+    assert best is not None and best.plate_number == "RCW-9206"
+
+
+def test_four_point_transform_straightens_skewed_plate() -> None:
+    img = np.zeros((300, 400, 3), dtype=np.uint8)
+    quad = np.array([[60, 80], [300, 110], [290, 200], [50, 160]], dtype="float32")
+    cv2.fillPoly(img, [quad.astype(np.int32)], (255, 255, 255))
+    warped, matrix = four_point_transform(img, quad, min_width=200)
+    assert warped.shape[1] >= 200
+    assert warped[5:-5, 5:-5].mean() > 240  # interior is all plate: the skew was removed
+    top_left = cv2.perspectiveTransform(quad.reshape(-1, 1, 2), matrix)[0, 0]
+    assert np.allclose(top_left, [0, 0], atol=1)
+
+
+def test_preprocess_plate_variants_keep_crop_size() -> None:
+    crop = np.full((60, 130, 3), 240, dtype=np.uint8)
+    variants = preprocess_plate(crop)
+    assert variants and all(v.shape == (60, 130) for v in variants)
 
 
 def test_format_plate_maps_letter_o_to_q() -> None:

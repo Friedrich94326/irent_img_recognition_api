@@ -1,0 +1,3 @@
+# Ontology for auto-labelling license plates (Grounding DINO prompt -> YOLO class name).
+"a license plate on a car": license_plate
+"a car number plate": license_plate
