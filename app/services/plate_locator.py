@@ -24,6 +24,11 @@ _MIN_RECTANGULARITY = 0.6
 _PAD_FRAC = 0.08
 _QUAD_PAD_FRAC = 0.04  # grow the quad slightly so the plate border is not clipped
 _MIN_WARP_WIDTH = 320  # upscale small plates to at least this width
+_QUAD_APPROX_EPS_FRACS = (0.02, 0.03, 0.05, 0.08)  # tried in order; first 4-point hit wins
+# Interior-angle bounds for a warpable quad: generous enough for a real oblique photo, but tight
+# enough to reject a near-collinear "sliver" corner from a bad contour approximation.
+_MIN_CORNER_ANGLE_DEG = 20.0
+_MAX_CORNER_ANGLE_DEG = 160.0
 
 
 @dataclass(frozen=True)
@@ -44,13 +49,30 @@ def order_points(pts: np.ndarray) -> np.ndarray:
     )
 
 
+def _corner_angles_deg(
+    tl: np.ndarray, tr: np.ndarray, br: np.ndarray, bl: np.ndarray
+) -> list[float]:
+    """Interior angle at each of the four ordered corners, in degrees."""
+
+    angles = []
+    pts = (tl, tr, br, bl)
+    for i, corner in enumerate(pts):
+        prev_pt, next_pt = pts[i - 1], pts[(i + 1) % 4]
+        v1, v2 = prev_pt - corner, next_pt - corner
+        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-9)
+        angles.append(float(np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0)))))
+    return angles
+
+
 def four_point_transform(
     rgb: np.ndarray, quad: np.ndarray, min_width: int = _MIN_WARP_WIDTH
 ) -> tuple[np.ndarray, np.ndarray]:
     """Straighten the quadrilateral ``quad`` of ``rgb`` into an upright rectangle.
 
     Returns ``(warped, matrix)`` where ``matrix`` maps source pixels to warped pixels (invert it
-    to map OCR boxes back onto the original image).
+    to map OCR boxes back onto the original image). Raises ``ValueError`` if ``quad`` is not
+    plausibly plate-shaped (degenerate, wrong aspect ratio, or a near-collinear sliver corner),
+    so callers can skip a bad candidate instead of warping and OCR-ing garbage.
     """
 
     tl, tr, br, bl = order_points(quad)
@@ -58,6 +80,11 @@ def four_point_transform(
     height = max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr))
     if width < 1 or height < 1:
         raise ValueError("degenerate plate quadrilateral")
+    if not (_MIN_ASPECT <= width / height <= _MAX_ASPECT):
+        raise ValueError("implausible plate aspect ratio")
+    angles = _corner_angles_deg(tl, tr, br, bl)
+    if any(a < _MIN_CORNER_ANGLE_DEG or a > _MAX_CORNER_ANGLE_DEG for a in angles):
+        raise ValueError("implausible plate quadrilateral")
     if width < min_width:  # upscale small plates so glyph strokes are thick enough to read
         height *= min_width / width
         width = float(min_width)
@@ -70,12 +97,20 @@ def four_point_transform(
 
 
 def _contour_quad(contour: np.ndarray) -> np.ndarray:
-    """Four corners of ``contour``: a polygon approximation, else its min-area rectangle."""
+    """Four corners of ``contour``: a polygon approximation, else its min-area rectangle.
+
+    Tries a small increasing sequence of ``approxPolyDP`` epsilons and keeps the first 4-point
+    hit, since a single fixed epsilon can miss an otherwise-good oblique quad. The min-area
+    rectangle fallback is perspective-blind (always axis-aligned to its own rotation, never a
+    true quad), so it is only used when no epsilon in the sequence yields exactly 4 points.
+    """
 
     hull = cv2.convexHull(contour)
-    approx = cv2.approxPolyDP(hull, 0.03 * cv2.arcLength(hull, True), True)
-    if len(approx) == 4:
-        return order_points(approx.reshape(4, 2))
+    perimeter = cv2.arcLength(hull, True)
+    for frac in _QUAD_APPROX_EPS_FRACS:
+        approx = cv2.approxPolyDP(hull, frac * perimeter, True)
+        if len(approx) == 4:
+            return order_points(approx.reshape(4, 2))
     return order_points(cv2.boxPoints(cv2.minAreaRect(contour)))
 
 

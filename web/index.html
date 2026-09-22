@@ -168,10 +168,29 @@
     display: inline-block; font-family: var(--mono); font-size: 28px; font-weight: 800; letter-spacing: .08em;
     padding: 6px 18px; border-radius: 6px; background: #fff; color: #111; border: 3px solid #111;
   }
+  .plate-crop-wrap { margin-bottom: 12px; }
+  .plate-crop-label {
+    font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em;
+    margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+  }
+  .plate-crop-label .zoom-hint { text-transform: none; letter-spacing: 0; opacity: .7; }
+  .plate-crop {
+    display: block; max-width: 100%; max-height: 220px; border-radius: 6px;
+    border: 1px solid var(--border); background: #111; cursor: zoom-in;
+  }
   .plate-none { color: var(--text-dim); font-size: 13px; }
   .plate-meta { font-size: 12px; color: var(--text-dim); margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
   .plate-meta b { color: var(--text); font-weight: 600; }
   .plate-alt { font-size: 12px; color: var(--text-dim); margin-top: 8px; font-family: var(--mono); overflow-wrap: anywhere; }
+
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(10, 11, 13, .85); z-index: 1000;
+    display: flex; align-items: center; justify-content: center; padding: 5vh 5vw; cursor: zoom-out;
+  }
+  .lightbox img {
+    max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5);
+    background: #111;
+  }
 </style>
 </head>
 <body>
@@ -409,12 +428,24 @@
 
   const PLATE_COLOR = '#2563eb';
 
-  function drawLabeledBox(ctx, b, scaleX, scaleY, color, label) {
-    const x = b.x1 * scaleX;
-    const y = b.y1 * scaleY;
+  function drawLabeledBox(ctx, b, scaleX, scaleY, color, label, corners) {
+    let x, y;
     ctx.lineWidth = 2;
     ctx.strokeStyle = color;
-    ctx.strokeRect(x, y, (b.x2 - b.x1) * scaleX, (b.y2 - b.y1) * scaleY);
+    if (corners && corners.length >= 3) {
+      // Outline the real (possibly tilted) plate quadrilateral instead of an axis-aligned box.
+      const pts = corners.map(([cx, cy]) => [cx * scaleX, cy * scaleY]);
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
+      ctx.closePath();
+      ctx.stroke();
+      x = Math.min(...pts.map((pt) => pt[0]));
+      y = Math.min(...pts.map((pt) => pt[1]));
+    } else {
+      x = b.x1 * scaleX;
+      y = b.y1 * scaleY;
+      ctx.strokeRect(x, y, (b.x2 - b.x1) * scaleX, (b.y2 - b.y1) * scaleY);
+    }
     ctx.font = '600 12px -apple-system, sans-serif';
     const padX = 5;
     const labelH = 17;
@@ -438,9 +469,9 @@
     const scaleY = h / previewImg.naturalHeight;
 
     lastPlates.forEach((p) => {
-      if (p.bounding_box) {
+      if (p.bounding_box || p.corners) {
         drawLabeledBox(ctx, p.bounding_box, scaleX, scaleY, PLATE_COLOR,
-          p.plate_number + '  ' + Math.round(p.confidence * 100) + '%');
+          p.plate_number + '  ' + Math.round(p.confidence * 100) + '%', p.corners);
       }
     });
 
@@ -538,6 +569,60 @@
     return node;
   }
 
+  function openLightbox(src) {
+    const overlay = el('div', 'lightbox');
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'license plate crop, enlarged';
+    overlay.appendChild(img);
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    };
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    overlay.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+  }
+
+  // Wraps a crop element (img or canvas) with a caption and click-to-zoom, for a clearer preview.
+  function platePreviewNode(node, label, zoomSrc) {
+    const wrap = el('div', 'plate-crop-wrap');
+    const caption = el('div', 'plate-crop-label', label);
+    if (zoomSrc) caption.appendChild(el('span', 'zoom-hint', '· click to enlarge'));
+    wrap.appendChild(caption);
+    node.classList.add('plate-crop');
+    if (zoomSrc) node.addEventListener('click', () => openLightbox(zoomSrc));
+    wrap.appendChild(node);
+    return wrap;
+  }
+
+  // The server-rectified crop is a perspective-corrected, front-on view of the plate — the
+  // clearest preview available. It is shown whenever the API returned one.
+  function plateImg(src) {
+    const img = document.createElement('img');
+    img.alt = 'license plate, straightened front-on view';
+    img.src = src;
+    return platePreviewNode(img, 'Rectified plate crop', src);
+  }
+
+  // Fallback when the server couldn't rectify the plate (e.g. corners unknown): cut the
+  // axis-aligned box out of the full-resolution photo instead. Labelled distinctly since it is
+  // not perspective-corrected, so a plate photographed at an angle will still look skewed here.
+  function cropPlate(b) {
+    if (!b) return null;
+    const x1 = Math.max(0, Math.floor(b.x1));
+    const y1 = Math.max(0, Math.floor(b.y1));
+    const w = Math.min(previewImg.naturalWidth, Math.ceil(b.x2)) - x1;
+    const h = Math.min(previewImg.naturalHeight, Math.ceil(b.y2)) - y1;
+    if (w <= 0 || h <= 0) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(previewImg, x1, y1, w, h, 0, 0, w, h);
+    return platePreviewNode(canvas, 'Raw crop (not straightened)', canvas.toDataURL('image/png'));
+  }
+
   function renderPlate(data) {
     plateCard.style.display = 'block';
     plateValue.replaceChildren();
@@ -546,6 +631,8 @@
 
     const best = data.best_plate;
     if (best) {
+      const crop = data.plate_image ? plateImg(data.plate_image) : cropPlate(best.bounding_box);
+      if (crop) plateValue.appendChild(crop);
       plateValue.appendChild(el('span', 'plate-number', best.plate_number));
       const conf = el('span'); conf.append('confidence ', el('b', null, Math.round(best.confidence * 100) + '%'));
       const ms = el('span'); ms.append(el('b', null, data.inference_ms.toFixed(0)), ' ms');
@@ -562,7 +649,9 @@
         .join(' · ');
     }
 
-    lastPlates = data.plates.filter((p) => p.valid_format);
+    // The same plate is read from several preprocessing variants; when its outline is known, draw
+    // just the best reading once instead of stacking identical contours.
+    lastPlates = best && best.corners ? [best] : data.plates.filter((p) => p.valid_format);
     drawBoxes(lastDetections);
   }
 

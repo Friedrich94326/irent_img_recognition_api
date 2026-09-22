@@ -8,6 +8,7 @@ install raises instead of silently serving fake plates.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import re
@@ -22,7 +23,11 @@ from PIL import Image
 from app.config import Settings
 from app.schemas.common import BoundingBox
 from app.schemas.plate import PlateReading
-from app.services.plate_locator import four_point_transform, locate_plate_candidates
+from app.services.plate_locator import (
+    four_point_transform,
+    locate_plate_candidates,
+    order_points,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,9 @@ class RawPlate:
     text: str
     confidence: float
     xyxy: tuple[float, float, float, float] | None
+    # Corners (tl, tr, br, bl) of the plate the text was read from, in original-image pixels; only
+    # known when the OpenCV locator found the plate, so it can be straightened for display.
+    corners: tuple[tuple[float, float], ...] | None = None
 
 
 def _clean(text: str) -> str:
@@ -140,6 +148,27 @@ class MockPlateRecognizer(PlateRecognizer):
         return [RawPlate(f"{letters}-{digits}", 0.5, box)]
 
 
+def _disable_cuda_pin_memory() -> None:
+    """Work around an EasyOCR bug that breaks CPU-only OCR on a machine with a GPU.
+
+    EasyOCR's recognizer hardcodes ``pin_memory=True`` on its internal ``DataLoader``
+    regardless of the ``gpu`` flag it was constructed with. Pinning tries to talk to CUDA even
+    when we asked for the CPU path, so on a machine where a CUDA device exists but is busy or
+    otherwise unavailable (e.g. held by another process), every OCR call raises instead of
+    running on the CPU as configured. Pinning is a transfer-speed optimisation only, never
+    required for correctness, so making it a no-op is safe: nothing breaks for a fully-CPU
+    pipeline, and it only forgoes that optimisation for any other CUDA work in the process.
+    """
+
+    import torch  # noqa: PLC0415 - heavy; only needed for this one-time patch
+
+    if getattr(torch.Tensor.pin_memory, "_irent_patched", False):
+        return
+    patched = lambda self, *args, **kwargs: self  # noqa: E731
+    patched._irent_patched = True
+    torch.Tensor.pin_memory = patched
+
+
 class EasyOCRPlateRecognizer(PlateRecognizer):
     """OpenCV finds plate-shaped regions; EasyOCR reads only those crops.
 
@@ -151,6 +180,8 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
     def __init__(self, gpu: bool = False, use_locator: bool = True) -> None:
         import easyocr  # noqa: PLC0415 - heavy; deferred so the mock works without it
 
+        if not gpu:
+            _disable_cuda_pin_memory()
         self._reader = easyocr.Reader(["en"], gpu=gpu, verbose=False)
         self._use_locator = use_locator
 
@@ -159,6 +190,7 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
         image: Image.Image | np.ndarray,
         scale: float = 1.0,
         to_original: np.ndarray | None = None,
+        corners: tuple[tuple[float, float], ...] | None = None,
     ) -> list[RawPlate]:
         """OCR ``image``.
 
@@ -180,6 +212,7 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
                     text,
                     float(conf),
                     (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())),
+                    corners,
                 )
             )
         return plates
@@ -201,8 +234,11 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
                     to_original = np.linalg.inv(matrix)
                 except (ValueError, np.linalg.LinAlgError, cv2.error):
                     continue  # degenerate quad; try the next candidate
+                corners = tuple(
+                    (float(x), float(y)) for x, y in order_points(cand.quad / scale)
+                )
                 for variant in preprocess_plate(warped):
-                    found.extend(self._ocr(variant, to_original=to_original))
+                    found.extend(self._ocr(variant, to_original=to_original, corners=corners))
             if any(format_plate(p.text) for p in found):
                 return found
 
@@ -226,6 +262,7 @@ def _to_reading(raw: RawPlate, size: tuple[int, int]) -> PlateReading:
         confidence=max(0.0, min(raw.confidence, 1.0)),
         valid_format=formatted is not None,
         bounding_box=box,
+        corners=[list(c) for c in raw.corners] if raw.corners else None,
     )
 
 
@@ -245,7 +282,8 @@ def _merge_split_plate(raws: list[RawPlate]) -> RawPlate | None:
                         max(x[2] for x in boxes),
                         max(x[3] for x in boxes),
                     )
-                return RawPlate(joined, min(a.confidence, b.confidence), xyxy)
+                corners = a.corners or b.corners
+                return RawPlate(joined, min(a.confidence, b.confidence), xyxy, corners)
     return None
 
 
@@ -273,6 +311,19 @@ def resolve_plates(
     return plates, best
 
 
+def rectify_plate(image: Image.Image, corners: list[list[float]]) -> str | None:
+    """Return the plate at ``corners`` as a front-on PNG data URL, or ``None`` on failure."""
+
+    try:
+        warped, _ = four_point_transform(np.asarray(image.convert("RGB")), np.array(corners))
+    except (ValueError, cv2.error):
+        return None
+    ok, png = cv2.imencode(".png", cv2.cvtColor(warped, cv2.COLOR_RGB2BGR))
+    if not ok:
+        return None
+    return "data:image/png;base64," + base64.b64encode(png.tobytes()).decode("ascii")
+
+
 def _lookalike_alternative(reading: PlateReading) -> PlateReading | None:
     """A copy of ``reading`` with K/W swapped in its letters, at reduced confidence."""
 
@@ -296,9 +347,10 @@ def build_plate_recognizer(settings: Settings) -> PlateRecognizer:
     if settings.plate_use_mock:
         logger.warning("IRENT_PLATE_USE_MOCK is set: plate results are FAKE")
         return MockPlateRecognizer()
+    device = settings.plate_device or settings.yolo_device
     try:
         return EasyOCRPlateRecognizer(
-            gpu=settings.yolo_device != "cpu", use_locator=settings.plate_use_opencv_locator
+            gpu=device != "cpu", use_locator=settings.plate_use_opencv_locator
         )
     except Exception as exc:
         raise RuntimeError(

@@ -13,7 +13,7 @@ from app.config import Settings
 from app.schemas.errors import ErrorResponse
 from app.schemas.plate import PlateRecognitionResponse
 from app.services.image_io import load_upload
-from app.services.plate_recognizer import PlateRecognizer, resolve_plates
+from app.services.plate_recognizer import PlateRecognizer, rectify_plate, resolve_plates
 
 router = APIRouter(prefix="/plate", tags=["plate"])
 
@@ -48,6 +48,7 @@ async def recognize_plate(
         image=metadata,
         plates=plates,
         best_plate=best,
+        plate_image=rectify_plate(image, best.corners) if best and best.corners else None,
         model_name=recognizer.name,
         is_mock=recognizer.is_mock,
         inference_ms=round(inference_ms, 3),

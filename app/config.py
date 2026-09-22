@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     plate_use_mock: bool = Field(
         default=False, description="Force the mock plate recognizer (skips loading EasyOCR)."
     )
+    plate_device: str | None = Field(
+        default=None,
+        description="Device for EasyOCR ('cpu', 'cuda', ...). Unset: follow IRENT_YOLO_DEVICE.",
+    )
     plate_use_opencv_locator: bool = Field(
         default=True,
         description="Crop plate-shaped regions with OpenCV before OCR (else OCR the full image).",

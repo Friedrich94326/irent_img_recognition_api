@@ -17,6 +17,10 @@ class PlateReading(BaseModel):
         description="True if the text matches a known Taiwan plate layout (e.g. ABC-1234)."
     )
     bounding_box: BoundingBox | None = None
+    corners: list[list[float]] | None = Field(
+        default=None,
+        description="Plate corners [x, y] as tl, tr, br, bl in image pixels, when localised.",
+    )
 
 
 class PlateRecognitionResponse(BaseModel):
@@ -25,6 +29,10 @@ class PlateRecognitionResponse(BaseModel):
     plates: list[PlateReading]
     best_plate: PlateReading | None = Field(
         default=None, description="Highest-confidence valid plate, or null if none was found."
+    )
+    plate_image: str | None = Field(
+        default=None,
+        description="Best plate warped front-on, as a PNG data URL (null if unavailable).",
     )
     model_name: str
     is_mock: bool

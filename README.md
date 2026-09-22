@@ -142,7 +142,7 @@ case-insensitively against `DamageClass` in `app/schemas/common.py` — update t
 match your trained model's `names`.
 
 Config is via `IRENT_`-prefixed env vars: `IRENT_YOLO_CONFIDENCE_THRESHOLD`,
-`IRENT_YOLO_IOU_THRESHOLD`, `IRENT_YOLO_DEVICE`, `IRENT_MAX_IMAGE_BYTES`,
+`IRENT_YOLO_IOU_THRESHOLD`, `IRENT_YOLO_DEVICE`, `IRENT_PLATE_DEVICE` (EasyOCR device; defaults to the YOLO one), `IRENT_MAX_IMAGE_BYTES`,
 `IRENT_ALLOWED_CONTENT_TYPES`, `IRENT_CORS_ALLOW_ORIGINS`.
 
 ## Project layout

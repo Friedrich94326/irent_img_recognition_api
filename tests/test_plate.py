@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 
 import cv2
 import numpy as np
@@ -11,7 +12,11 @@ from PIL import Image, ImageDraw
 from app.api.deps import get_plate_recognizer
 from app.config import Settings
 from app.schemas.plate import PlateRecognitionResponse
-from app.services.plate_locator import four_point_transform, locate_plate_regions
+from app.services.plate_locator import (
+    four_point_transform,
+    locate_plate_candidates,
+    locate_plate_regions,
+)
 from app.services.plate_recognizer import (
     EasyOCRPlateRecognizer,
     PlateRecognizer,
@@ -159,6 +164,56 @@ def test_four_point_transform_straightens_skewed_plate() -> None:
     assert warped[5:-5, 5:-5].mean() > 240  # interior is all plate: the skew was removed
     top_left = cv2.perspectiveTransform(quad.reshape(-1, 1, 2), matrix)[0, 0]
     assert np.allclose(top_left, [0, 0], atol=1)
+
+
+def test_four_point_transform_rejects_implausible_aspect() -> None:
+    img = np.zeros((300, 300, 3), dtype=np.uint8)
+    # A near-square quad: no real plate has this aspect ratio, valid or oblique.
+    quad = np.array([[50, 50], [200, 55], [195, 200], [45, 195]], dtype="float32")
+    with pytest.raises(ValueError, match="aspect"):
+        four_point_transform(img, quad, min_width=50)
+
+
+def test_four_point_transform_rejects_sliver_quad() -> None:
+    img = np.zeros((300, 400, 3), dtype=np.uint8)
+    # A plausible-aspect quad with one corner pinched to ~161 degrees: a bad contour-approximation
+    # artifact (near-collinear edge), not a real plate corner.
+    quad = np.array([[10, 140], [300, 0], [300, 150], [0, 150]], dtype="float32")
+    with pytest.raises(ValueError, match="quadrilateral"):
+        four_point_transform(img, quad, min_width=50)
+
+
+def _rotated_plate_corners(
+    angle_deg: float, cx=400, cy=410, w=220, h=72
+) -> list[tuple[float, float]]:
+    a = math.radians(angle_deg)
+    corners = [(-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2)]
+    return [
+        (cx + x * math.cos(a) - y * math.sin(a), cy + x * math.sin(a) + y * math.cos(a))
+        for x, y in corners
+    ]
+
+
+def test_locator_finds_rotated_plate() -> None:
+    # A plate-shaped quad rotated 10 degrees, not axis-aligned.
+    quad = _rotated_plate_corners(10)
+    img = Image.new("RGB", (800, 600), (90, 90, 95))
+    draw = ImageDraw.Draw(img)
+    draw.polygon(quad, fill=(245, 245, 245), outline=(0, 0, 0), width=4)
+
+    candidates = locate_plate_candidates(img)
+    assert candidates, "expected at least one candidate"
+    found = candidates[0].quad
+    # A rotated quad's corners must not collapse onto an axis-aligned box: both x- and y-span
+    # should reflect the rotated rectangle's extent, not just its width or height alone.
+    xs, ys = found[:, 0], found[:, 1]
+    assert xs.max() - xs.min() > 150
+    assert ys.max() - ys.min() > 50
+    # The found top-left corner should stay close to the drawn one (within the locator's padding).
+    drawn_top_left = min(quad, key=lambda p: p[0] + p[1])
+    top_left_found = found[np.argmin(found.sum(axis=1))]
+    assert abs(top_left_found[0] - drawn_top_left[0]) < 40
+    assert abs(top_left_found[1] - drawn_top_left[1]) < 40
 
 
 def test_preprocess_plate_variants_keep_crop_size() -> None:
