@@ -29,6 +29,8 @@ _QUAD_APPROX_EPS_FRACS = (0.02, 0.03, 0.05, 0.08)  # tried in order; first 4-poi
 # enough to reject a near-collinear "sliver" corner from a bad contour approximation.
 _MIN_CORNER_ANGLE_DEG = 20.0
 _MAX_CORNER_ANGLE_DEG = 160.0
+_REFINE_WINDOW_PAD_FRAC = 0.30  # search margin around an OCR text box for the plate's own border
+_REFINE_MIN_AREA_FRAC = 0.25  # a plate border must enclose at least this share of the text box
 
 
 @dataclass(frozen=True)
@@ -178,6 +180,56 @@ def locate_plate_candidates(image: Image.Image, max_candidates: int = 3) -> list
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return [cand for _, cand in scored[:max_candidates]]
+
+
+def refine_plate_quad(
+    rgb: np.ndarray, xyxy: tuple[float, float, float, float]
+) -> np.ndarray | None:
+    """Find the real (possibly tilted) plate corners around an OCR text box, or ``None``.
+
+    The global locator's wide morphological close can merge a white plate into a white car
+    body, leaving only the OCR text box. Searching a small window around that box with plain
+    edges (no close) recovers the plate border, so the crop can be truly perspective-corrected
+    instead of warped from an axis-aligned rectangle.
+    """
+
+    height, width = rgb.shape[:2]
+    x1, y1, x2, y2 = xyxy
+    pad_x, pad_y = (x2 - x1) * _REFINE_WINDOW_PAD_FRAC, (y2 - y1) * _REFINE_WINDOW_PAD_FRAC
+    wx1, wy1 = max(0, int(x1 - pad_x)), max(0, int(y1 - pad_y))
+    wx2, wy2 = min(width, int(x2 + pad_x)), min(height, int(y2 + pad_y))
+    if wx2 - wx1 < 2 or wy2 - wy1 < 2:
+        return None
+
+    gray = cv2.cvtColor(rgb[wy1:wy2, wx1:wx2], cv2.COLOR_RGB2GRAY)
+    gray = cv2.bilateralFilter(gray, 9, 30, 30)
+    edges = cv2.dilate(cv2.Canny(gray, 40, 160), np.ones((3, 3), np.uint8))
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+    centre = ((x1 + x2) / 2 - wx1, (y1 + y2) / 2 - wy1)
+    min_area = _REFINE_MIN_AREA_FRAC * (x2 - x1) * (y2 - y1)
+    best: tuple[float, np.ndarray] | None = None
+    for contour in contours:
+        hull = cv2.convexHull(contour)
+        area = cv2.contourArea(hull)
+        if area < min_area or cv2.pointPolygonTest(hull, centre, False) < 0:
+            continue
+        tl, tr, br, bl = quad = _contour_quad(contour)
+        w = max(np.linalg.norm(tr - tl), np.linalg.norm(br - bl))
+        h = max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr))
+        if h < 1 or not (_MIN_ASPECT <= w / h <= _MAX_ASPECT):
+            continue
+        angles = _corner_angles_deg(tl, tr, br, bl)
+        if any(a < _MIN_CORNER_ANGLE_DEG or a > _MAX_CORNER_ANGLE_DEG for a in angles):
+            continue
+        # Smallest enclosing border wins: the plate itself, not the bumper around it.
+        if best is None or area < best[0]:
+            best = (area, quad)
+
+    if best is None:
+        return None
+    quad = best[1] + np.array([wx1, wy1], dtype="float32")
+    return order_points(_expand_quad(quad, _QUAD_PAD_FRAC))
 
 
 def locate_plate_regions(image: Image.Image, max_candidates: int = 3) -> list[Box]:

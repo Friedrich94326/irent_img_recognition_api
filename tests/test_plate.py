@@ -16,6 +16,7 @@ from app.services.plate_locator import (
     four_point_transform,
     locate_plate_candidates,
     locate_plate_regions,
+    refine_plate_quad,
 )
 from app.services.plate_recognizer import (
     EasyOCRPlateRecognizer,
@@ -124,6 +125,32 @@ def test_recognizer_reads_crop_and_offsets_boxes() -> None:
     assert len(rec._reader.shapes) == variants * len(locate_plate_regions(_scene_with_plate()))
 
 
+class _NarrowOnlyReader(_FakeReader):
+    """Reads the plate only from 320 px crops, like a glyph that flips with crop size."""
+
+    def readtext(self, arr, **_):
+        self.shapes.append(arr.shape)
+        h, w = arr.shape[:2]
+        return [([[0, 0], [w, 0], [w, h], [0, h]], "ABC-1234" if w == 320 else "XY", 0.9)]
+
+
+def test_recognizer_tries_wide_crop_first_then_falls_back_to_narrow() -> None:
+    rec = EasyOCRPlateRecognizer.__new__(EasyOCRPlateRecognizer)
+    rec._reader, rec._use_locator = _NarrowOnlyReader(), True
+    plates = rec.read(_scene_with_plate())
+    assert any(p.text == "ABC-1234" for p in plates)
+    widths = [shape[1] for shape in rec._reader.shapes]
+    assert widths[0] == 640  # the wide crop is read first
+    assert 320 in widths  # and the narrow crop only after it found no valid plate
+
+
+def test_recognizer_stops_at_wide_crop_when_it_reads_a_plate() -> None:
+    rec = EasyOCRPlateRecognizer.__new__(EasyOCRPlateRecognizer)
+    rec._reader, rec._use_locator = _FakeReader(), True
+    rec.read(_scene_with_plate())
+    assert all(shape[1] == 640 for shape in rec._reader.shapes)
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -153,6 +180,23 @@ def test_resolve_plates_prefers_plate_seen_in_more_variants() -> None:
     ]
     _, best = resolve_plates(raws, (200, 100), 0.5)
     assert best is not None and best.plate_number == "RCW-9206"
+
+
+def test_resolve_plates_prefers_standard_layout_on_a_vote_tie() -> None:
+    # A dropped last digit still matches the older ABC-123 layout; it must not win a tie.
+    raws = [RawPlate("RDJ077", 0.9, (0, 0, 100, 40)), RawPlate("RDJ0772", 0.6, (0, 0, 100, 40))]
+    _, best = resolve_plates(raws, (200, 100), 0.5)
+    assert best is not None and best.plate_number == "RDJ-0772"
+
+
+def test_resolve_plates_votes_outrank_standard_layout() -> None:
+    raws = [
+        RawPlate("AB1234", 0.6, (0, 0, 100, 40)),
+        RawPlate("AB1234", 0.6, (0, 0, 100, 40)),
+        RawPlate("ABC1234", 0.9, (0, 0, 100, 40)),
+    ]
+    _, best = resolve_plates(raws, (200, 100), 0.5)
+    assert best is not None and best.plate_number == "AB-1234"
 
 
 def test_four_point_transform_straightens_skewed_plate() -> None:
@@ -216,10 +260,37 @@ def test_locator_finds_rotated_plate() -> None:
     assert abs(top_left_found[1] - drawn_top_left[1]) < 40
 
 
+def test_refine_plate_quad_finds_tilted_plate_around_text_box() -> None:
+    # A white plate on a white car body, framed by a dark grille: the global locator's wide
+    # close merges the two, so the plate must be found from its OCR text box instead.
+    quad = _rotated_plate_corners(-12, cx=300, cy=260, w=200, h=90)
+    img = Image.new("RGB", (600, 500), (235, 235, 235))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((150, 190, 450, 340), fill=(30, 30, 30))
+    draw.polygon(quad, fill=(245, 245, 245))
+    draw.text((255, 250), "ABC-1234", fill=(0, 0, 0))
+
+    # The OCR box covers most of the plate, as the whole-frame fallback's text hits do.
+    found = refine_plate_quad(np.asarray(img), (215, 215, 385, 305))
+    assert found is not None
+    # Each corner lands near the drawn one (allowing for the small outward quad padding), so
+    # the result is the tilted plate, not the axis-aligned text box.
+    for drawn, got in zip(quad, found, strict=True):
+        assert abs(got[0] - drawn[0]) < 15 and abs(got[1] - drawn[1]) < 15
+    assert abs(found[0][1] - found[1][1]) > 20  # top edge is tilted
+
+
+def test_refine_plate_quad_returns_none_without_a_plate() -> None:
+    img = np.full((300, 400, 3), 128, dtype=np.uint8)
+    assert refine_plate_quad(img, (150, 120, 250, 170)) is None
+
+
 def test_preprocess_plate_variants_keep_crop_size() -> None:
     crop = np.full((60, 130, 3), 240, dtype=np.uint8)
     variants = preprocess_plate(crop)
-    assert variants and all(v.shape == (60, 130) for v in variants)
+    # The colour variant keeps its 3 channels; the rest are flattened to grayscale.
+    assert variants and all(v.shape[:2] == (60, 130) for v in variants)
+    assert sum(v.ndim == 3 for v in variants) == 1
 
 
 def test_format_plate_maps_letter_o_to_q() -> None:

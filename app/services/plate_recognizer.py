@@ -14,6 +14,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import cv2
@@ -27,6 +28,7 @@ from app.services.plate_locator import (
     four_point_transform,
     locate_plate_candidates,
     order_points,
+    refine_plate_quad,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,12 @@ _BORDER_TRIM_FRAC = 0.04  # share of each side blanked so the plate frame is not
 # Visually close pairs; used to offer an alternative reading, never to overwrite the original.
 _LETTER_SWAPS = str.maketrans("KW", "WK")
 _ALT_CONFIDENCE_FACTOR = 0.5
+_REREAD_PAD_FRAC = 0.15  # margin around a whole-frame hit before upscaling it for a second look
+# Minimum widths plate crops are upscaled to, tried in order until one yields a valid plate. On
+# the iRent benchmark photos 640 px read W/K/H and dropped glyphs best; 320 px rescues the rest.
+_CROP_WIDTHS = (640, 320)
+# The current car layout (ABC-1234). Older layouts stay valid; this only breaks ties in ranking.
+_STANDARD_PLATE_RE = re.compile(r"[A-Z]{3}-\d{4}")
 
 
 @dataclass(frozen=True)
@@ -101,15 +109,20 @@ def format_plate(text: str) -> str | None:
 
 
 def preprocess_plate(warped_rgb: np.ndarray) -> list[np.ndarray]:
-    """Return same-size grayscale variants of a straightened plate crop, best guess first.
+    """Return same-size variants of a straightened plate crop for OCR, best guess first.
 
-    1. CLAHE-equalised gray: local contrast makes glyph edges crisp under glare / shadow.
-    2. Otsu-binarised with the outer frame blanked: removes the plate border that OCR otherwise
+    1. Colour, lightly denoised: EasyOCR's recognizer can lean on colour cues that flattening to
+       greyscale throws away (observed on a real plate: a clean colour crop read a 'W' correctly,
+       but every greyscale-derived variant below misread the same glyph as 'K' or 'Y'), so the
+       colour crop gets its own OCR pass rather than only ever feeding it derived greyscale.
+    2. CLAHE-equalised gray: local contrast makes glyph edges crisp under glare / shadow.
+    3. Otsu-binarised with the outer frame blanked: removes the plate border that OCR otherwise
        reads as a leading 'I' / 'L'.
 
     Variants keep the crop's size so OCR boxes map back through one perspective matrix.
     """
 
+    denoised_colour = cv2.bilateralFilter(warped_rgb, 7, 40, 40)
     gray = cv2.cvtColor(warped_rgb, cv2.COLOR_RGB2GRAY)
     gray = cv2.bilateralFilter(gray, 7, 40, 40)  # denoise, keep glyph edges
     equalised = cv2.createCLAHE(clipLimit=_CLAHE_CLIP, tileGridSize=(4, 4)).apply(gray)
@@ -121,7 +134,7 @@ def preprocess_plate(warped_rgb: np.ndarray) -> list[np.ndarray]:
     dy, dx = max(1, round(h * _BORDER_TRIM_FRAC)), max(1, round(w * _BORDER_TRIM_FRAC))
     trimmed[:dy, :] = trimmed[-dy:, :] = background
     trimmed[:, :dx] = trimmed[:, -dx:] = background
-    return [equalised, trimmed]
+    return [denoised_colour, equalised, trimmed]
 
 
 class PlateRecognizer(ABC):
@@ -217,6 +230,73 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
             )
         return plates
 
+    def _read_quad(self, rgb: np.ndarray, quad: np.ndarray, min_width: int) -> list[RawPlate]:
+        """Straighten ``quad`` of ``rgb`` to at least ``min_width`` px and OCR every variant."""
+
+        try:
+            warped, matrix = four_point_transform(rgb, quad, min_width=min_width)
+            to_original = np.linalg.inv(matrix)
+        except (ValueError, np.linalg.LinAlgError, cv2.error):
+            return []  # implausible or degenerate quad: never going to be a plate
+        corners = tuple((float(x), float(y)) for x, y in order_points(quad))
+        results: list[RawPlate] = []
+        for variant in preprocess_plate(warped):
+            results.extend(self._ocr(variant, to_original=to_original, corners=corners))
+        return results
+
+    def _reread_region(
+        self, rgb: np.ndarray, xyxy: tuple[float, float, float, float], min_width: int
+    ) -> list[RawPlate]:
+        """Re-OCR a whole-frame hit at higher resolution.
+
+        The whole-frame fallback reads a plate at its native size within the full photo, which
+        is far more error-prone (e.g. misreading 'W' as 'K') than the locator path's tightly
+        cropped, upscaled reads. Pad and upscale this hit's own box the same way a located
+        candidate would be, and read it again; an implausible box (wrong aspect ratio) is simply
+        skipped, since it was never going to be a plate anyway.
+
+        The plate's own border is searched for around the hit first, so a tilted plate is truly
+        perspective-corrected; the padded axis-aligned box is only the fallback.
+        """
+
+        quad = refine_plate_quad(rgb, xyxy)
+        if quad is None:
+            x1, y1, x2, y2 = xyxy
+            pad_x, pad_y = (x2 - x1) * _REREAD_PAD_FRAC, (y2 - y1) * _REREAD_PAD_FRAC
+            quad = np.array(
+                [
+                    [x1 - pad_x, y1 - pad_y],
+                    [x2 + pad_x, y1 - pad_y],
+                    [x2 + pad_x, y2 + pad_y],
+                    [x1 - pad_x, y2 + pad_y],
+                ],
+                dtype="float32",
+            )
+        return self._read_quad(rgb, quad, min_width)
+
+    def _read_at_width(
+        self,
+        rgb: np.ndarray,
+        quads: list[np.ndarray],
+        frame_hits: Callable[[], list[RawPlate]],
+        min_width: int,
+    ) -> list[RawPlate]:
+        """Run the locate-then-whole-frame pipeline, straightening crops to ``min_width`` px."""
+
+        found: list[RawPlate] = []
+        for quad in quads:
+            found.extend(self._read_quad(rgb, quad, min_width))
+        if _has_valid_plate(found):
+            return found
+
+        # No crop produced a valid plate (or the locator is off): scan the whole frame, then
+        # re-read each hit at locator-candidate quality instead of trusting the native-size text.
+        refined: list[RawPlate] = []
+        for raw in frame_hits():
+            reread = self._reread_region(rgb, raw.xyxy, min_width) if raw.xyxy else []
+            refined.extend(reread or [raw])
+        return found + refined
+
     def read(self, image: Image.Image) -> list[RawPlate]:
         # Locate and run the full-frame fallback on a downscaled copy (phone photos are huge and
         # OCR on them is slow); plates are warped from the original so small ones keep detail.
@@ -224,26 +304,30 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
         work = image if scale == 1.0 else image.resize(
             (round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS
         )
+        rgb = np.asarray(image.convert("RGB"))
+        quads = [c.quad / scale for c in locate_plate_candidates(work)] if self._use_locator else []
 
-        found: list[RawPlate] = []
-        if self._use_locator:
-            original = np.asarray(image.convert("RGB"))
-            for cand in locate_plate_candidates(work):
-                try:
-                    warped, matrix = four_point_transform(original, cand.quad / scale)
-                    to_original = np.linalg.inv(matrix)
-                except (ValueError, np.linalg.LinAlgError, cv2.error):
-                    continue  # degenerate quad; try the next candidate
-                corners = tuple(
-                    (float(x), float(y)) for x, y in order_points(cand.quad / scale)
-                )
-                for variant in preprocess_plate(warped):
-                    found.extend(self._ocr(variant, to_original=to_original, corners=corners))
-            if any(format_plate(p.text) for p in found):
-                return found
+        cached_hits: list[list[RawPlate]] = []
 
-        # No crop produced a valid plate (or the locator is off): scan the whole frame.
-        return found + self._ocr(work, scale=1.0 / scale)
+        def frame_hits() -> list[RawPlate]:
+            # The native-size whole-frame scan does not depend on the crop width: run it once.
+            if not cached_hits:
+                cached_hits.append(self._ocr(work, scale=1.0 / scale))
+            return cached_hits[0]
+
+        # Glyph reads flip with crop size (a 'W' read as 'H'/'K'/'N'/'V' at one width, correctly
+        # at another). Wider crops read best on the benchmark photos, so try them first and only
+        # fall back to a narrower crop when the wider one yields no valid plate at all.
+        raws: list[RawPlate] = []
+        for min_width in _CROP_WIDTHS:
+            raws = self._read_at_width(rgb, quads, frame_hits, min_width)
+            if _has_valid_plate(raws):
+                break
+        return raws
+
+
+def _has_valid_plate(raws: list[RawPlate]) -> bool:
+    return any(format_plate(r.text) for r in raws) or _merge_split_plate(raws) is not None
 
 
 def _to_reading(raw: RawPlate, size: tuple[int, int]) -> PlateReading:
@@ -304,8 +388,16 @@ def resolve_plates(
     alternatives = [_lookalike_alternative(p) for p in plates if p.valid_format]
     plates += [a for a in alternatives if a is not None and a.plate_number not in votes]
 
+    # Between equally-voted readings, prefer the current ABC-1234 layout: a dropped glyph
+    # ('RDJ-077' for 'RDJ-0772') still matches an older layout, so it must not win a tie.
     plates.sort(
-        key=lambda p: (p.valid_format, votes.get(p.plate_number, 0), p.confidence), reverse=True
+        key=lambda p: (
+            p.valid_format,
+            votes.get(p.plate_number, 0),
+            bool(_STANDARD_PLATE_RE.fullmatch(p.plate_number)),
+            p.confidence,
+        ),
+        reverse=True,
     )
     best = next((p for p in plates if p.valid_format), None)
     return plates, best
