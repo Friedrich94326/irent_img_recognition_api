@@ -1,0 +1,5 @@
+# Ontology for auto-labelling tires (Grounding DINO prompt -> YOLO class name).
+# One class: the whole wheel as seen from outside (tire plus rim), since that is what a
+# photo of a car shows and what an inspector would crop.
+"a car tire": tire
+"a car wheel": tire

@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from app.config import Settings, get_settings
 from app.services.evaluator import DamageEvaluator
 from app.services.plate_recognizer import PlateRecognizer
+from app.services.tire_detector import TireDetector
 
 
 def get_evaluator(request: Request) -> DamageEvaluator:
@@ -21,6 +22,12 @@ def get_plate_recognizer(request: Request) -> PlateRecognizer:
     return request.app.state.plate_recognizer
 
 
+def get_tire_detector(request: Request) -> TireDetector:
+    """Return the process-wide tire detector created during application startup."""
+
+    return request.app.state.tire_detector
+
+
 SettingsDep = Depends(get_settings)
 EvaluatorDep = Depends(get_evaluator)
 
@@ -31,4 +38,5 @@ __all__ = [
     "get_evaluator",
     "get_plate_recognizer",
     "get_settings",
+    "get_tire_detector",
 ]

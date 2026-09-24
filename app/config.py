@@ -58,6 +58,16 @@ class Settings(BaseSettings):
         description="Minimum confidence to report text that does not match a plate format.",
     )
 
+    # --- Tire detection ----------------------------------------------------
+    tire_weights_path: Path | None = Field(
+        default=None,
+        description="Path to a one-class YOLO tire .pt file. If unset or missing, a mock is used.",
+    )
+    tire_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    tire_device: str | None = Field(
+        default=None, description="Device for the tire model. Unset: follow IRENT_YOLO_DEVICE."
+    )
+
     # --- Upload constraints ----------------------------------------------
     max_image_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     allowed_content_types: set[str] = {"image/jpeg", "image/png", "image/webp"}

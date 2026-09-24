@@ -182,6 +182,10 @@
   .plate-meta { font-size: 12px; color: var(--text-dim); margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
   .plate-meta b { color: var(--text); font-weight: 600; }
   .plate-alt { font-size: 12px; color: var(--text-dim); margin-top: 8px; font-family: var(--mono); overflow-wrap: anywhere; }
+  .tire-count { font-size: 22px; font-weight: 700; margin-bottom: 10px; }
+  .tire-crops { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tire-crop-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+  .tire-crop { display: block; height: 96px; max-width: 100%; cursor: zoom-in; }
 
   .lightbox {
     position: fixed; inset: 0; background: rgba(10, 11, 13, .85); z-index: 1000;
@@ -229,6 +233,7 @@
       <div class="actions">
         <button class="primary" id="evaluateBtn" disabled>Evaluate damage</button>
         <button id="plateBtn" disabled>Read license plate</button>
+        <button id="tireBtn" disabled>Detect tires</button>
         <button id="clearBtn">Clear</button>
       </div>
       <div id="errorBox" style="display:none" class="error-box"></div>
@@ -242,7 +247,12 @@
         <div class="plate-meta" id="plateMeta"></div>
         <div class="plate-alt" id="plateAlt"></div>
       </div>
-      <div id="resultEmpty" class="empty">No evaluation yet — upload an image and click "Evaluate damage" or "Read license plate".</div>
+      <div id="tireCard" class="plate-card" style="display:none">
+        <h3>Tires</h3>
+        <div id="tireValue"></div>
+        <div class="plate-meta" id="tireMeta"></div>
+      </div>
+      <div id="resultEmpty" class="empty">No evaluation yet — upload an image and click "Evaluate damage", "Read license plate" or "Detect tires".</div>
       <div id="resultBody" style="display:none">
         <span id="sevBadge" class="sev-badge">—</span>
 
@@ -294,6 +304,10 @@
   const plateValue = $('plateValue');
   const plateMeta = $('plateMeta');
   const plateAlt = $('plateAlt');
+  const tireBtn = $('tireBtn');
+  const tireCard = $('tireCard');
+  const tireValue = $('tireValue');
+  const tireMeta = $('tireMeta');
   const errorBox = $('errorBox');
 
   const resultEmpty = $('resultEmpty');
@@ -367,8 +381,10 @@
     resultEmpty.style.display = 'block';
     resultBody.style.display = 'none';
     plateCard.style.display = 'none';
+    tireCard.style.display = 'none';
     lastDetections = [];
     lastPlates = [];
+    lastTires = [];
 
     selectedFile = file;
     const url = URL.createObjectURL(file);
@@ -384,6 +400,7 @@
     fileSize.textContent = '· ' + formatBytes(file.size);
     evaluateBtn.disabled = false;
     plateBtn.disabled = false;
+    tireBtn.disabled = false;
   }
 
   dropzone.addEventListener('click', (e) => {
@@ -418,15 +435,19 @@
     fileRow.style.display = 'none';
     evaluateBtn.disabled = true;
     plateBtn.disabled = true;
+    tireBtn.disabled = true;
     clearError();
     resultEmpty.style.display = 'block';
     resultBody.style.display = 'none';
     plateCard.style.display = 'none';
+    tireCard.style.display = 'none';
     lastDetections = [];
     lastPlates = [];
+    lastTires = [];
   });
 
   const PLATE_COLOR = '#2563eb';
+  const TIRE_COLOR = '#0d9488';
 
   function drawLabeledBox(ctx, b, scaleX, scaleY, color, label, corners) {
     let x, y;
@@ -446,6 +467,11 @@
       y = b.y1 * scaleY;
       ctx.strokeRect(x, y, (b.x2 - b.x1) * scaleX, (b.y2 - b.y1) * scaleY);
     }
+    drawLabel(ctx, x, y, color, label);
+  }
+
+  // A filled label tab sitting just above (x, y), clamped to the top of the canvas.
+  function drawLabel(ctx, x, y, color, label) {
     ctx.font = '600 12px -apple-system, sans-serif';
     const padX = 5;
     const labelH = 17;
@@ -456,6 +482,18 @@
     ctx.fillText(label, x + padX, ly + 12.5);
   }
 
+  // Tires are round: outline each as its ellipse, labelled just above the top of the curve.
+  function drawTire(ctx, t, scaleX, scaleY) {
+    const e = t.ellipse;
+    const cx = e.cx * scaleX, cy = e.cy * scaleY, rx = e.rx * scaleX, ry = e.ry * scaleY;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = TIRE_COLOR;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+    ctx.stroke();
+    drawLabel(ctx, cx - rx, cy - ry, TIRE_COLOR, 'tire  ' + Math.round(t.confidence * 100) + '%');
+  }
+
   function drawBoxes(detections) {
     const w = previewImg.clientWidth;
     const h = previewImg.clientHeight;
@@ -463,10 +501,12 @@
     overlay.height = h;
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, w, h);
-    if (!detections.length && !lastPlates.length) return;
+    if (!detections.length && !lastPlates.length && !lastTires.length) return;
 
     const scaleX = w / previewImg.naturalWidth;
     const scaleY = h / previewImg.naturalHeight;
+
+    lastTires.forEach((t) => drawTire(ctx, t, scaleX, scaleY));
 
     lastPlates.forEach((p) => {
       if (p.bounding_box || p.corners) {
@@ -506,6 +546,7 @@
 
   let lastDetections = [];
   let lastPlates = [];
+  let lastTires = [];
 
   function sevClass(sev) { return 'sev-' + sev; }
 
@@ -573,7 +614,7 @@
     const overlay = el('div', 'lightbox');
     const img = document.createElement('img');
     img.src = src;
-    img.alt = 'license plate crop, enlarged';
+    img.alt = 'crop, enlarged';
     overlay.appendChild(img);
     const close = () => {
       overlay.remove();
@@ -673,6 +714,73 @@
     }
   }
   plateBtn.addEventListener('click', readPlate);
+
+  // Cut one tire out of the full-resolution photo, clipped to its ellipse so the close-up shows
+  // just the round tire (transparent corners), for the inspector to enlarge.
+  function tireCrop(t, index) {
+    const b = t.bounding_box;
+    const x1 = Math.floor(b.x1), y1 = Math.floor(b.y1);
+    const w = Math.ceil(b.x2) - x1, h = Math.ceil(b.y2) - y1;
+    if (w <= 0 || h <= 0) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const e = t.ellipse;
+    ctx.beginPath();
+    ctx.ellipse(e.cx - x1, e.cy - y1, e.rx, e.ry, 0, 0, 2 * Math.PI);
+    ctx.clip();
+    ctx.drawImage(previewImg, x1, y1, w, h, 0, 0, w, h);
+    canvas.className = 'tire-crop';
+    const src = canvas.toDataURL('image/png');
+    canvas.addEventListener('click', () => openLightbox(src));
+    const wrap = el('div', 'tire-crop-wrap');
+    wrap.append(canvas, el('span', null, '#' + (index + 1) + ' · ' + Math.round(t.confidence * 100) + '%'));
+    return wrap;
+  }
+
+  function renderTires(data) {
+    tireCard.style.display = 'block';
+    tireValue.replaceChildren();
+    tireMeta.replaceChildren();
+
+    const n = data.tire_count;
+    tireValue.appendChild(el('div', 'tire-count', n === 1 ? '1 tire found' : n + ' tires found'));
+    if (n) {
+      const crops = el('div', 'tire-crops');
+      data.tires.forEach((t, i) => {
+        const node = tireCrop(t, i);
+        if (node) crops.appendChild(node);
+      });
+      tireValue.appendChild(crops);
+    } else {
+      tireValue.appendChild(el('div', 'plate-none', 'No tires found in this image.'));
+    }
+    const ms = el('span'); ms.append(el('b', null, data.inference_ms.toFixed(0)), ' ms');
+    tireMeta.append(ms, el('span', null, data.model_name + (data.is_mock ? ' · mock (not a real detection)' : '')));
+
+    lastTires = data.tires;
+    drawBoxes(lastDetections);
+  }
+
+  async function detectTires() {
+    if (!selectedFile) return;
+    clearError();
+    tireBtn.disabled = true;
+    tireBtn.classList.add('spin-dark');
+    tireBtn.innerHTML = '<span class="spinner"></span>Detecting…';
+
+    try {
+      renderTires(await postImage('/api/v1/tire/detect'));
+    } catch (err) {
+      showError('Tire request failed — ' + (err.message || err) + '. Is the API running and reachable at "' + apiBase() + '"?');
+    } finally {
+      tireBtn.disabled = false;
+      tireBtn.classList.remove('spin-dark');
+      tireBtn.textContent = 'Detect tires';
+    }
+  }
+  tireBtn.addEventListener('click', detectTires);
 
   async function evaluate() {
     if (!selectedFile) return;

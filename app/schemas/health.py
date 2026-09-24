@@ -35,6 +35,12 @@ class HealthResponse(BaseModel):
     plate_is_mock: bool | None = Field(
         default=None, description="True when the plate recogniser is the built-in mock."
     )
+    tire_model_name: str | None = Field(
+        default=None, description="Tire detector in use, e.g. 'yolo-tire'."
+    )
+    tire_is_mock: bool | None = Field(
+        default=None, description="True when the tire detector is the built-in mock."
+    )
     weights_path: str | None = Field(
         default=None, description="Configured YOLOv8 weights path, if any."
     )

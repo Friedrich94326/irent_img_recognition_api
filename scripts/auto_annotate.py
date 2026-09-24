@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import yaml
-from PIL import Image
+from PIL import Image, ImageOps
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".jfif", ".bmp", ".webp"}
 
@@ -38,7 +38,8 @@ def stage_images(images: list[Path], images_out: Path) -> dict[Path, Path]:
 
     Source folders here mix .jpg/.jfif and have images across multiple subfolders that
     can share a filename, so re-encoding via PIL both guards against corrupt/odd files
-    and guarantees unique, YOLO-friendly filenames.
+    and guarantees unique, YOLO-friendly filenames. The EXIF orientation is applied
+    (and not re-saved), so staged images are upright exactly as the API sees uploads.
     """
     images_out.mkdir(parents=True, exist_ok=True)
     mapping: dict[Path, Path] = {}
@@ -46,7 +47,7 @@ def stage_images(images: list[Path], images_out: Path) -> dict[Path, Path]:
         dest = images_out / f"{i:05d}_{src.stem}.jpg"
         try:
             with Image.open(src) as im:
-                im.convert("RGB").save(dest, "JPEG", quality=95)
+                ImageOps.exif_transpose(im).convert("RGB").save(dest, "JPEG", quality=95)
         except Exception as exc:  # noqa: BLE001 - skip unreadable/corrupt images
             print(f"  skip (unreadable): {src} ({exc})", file=sys.stderr)
             continue
@@ -62,6 +63,11 @@ def main() -> None:
     parser.add_argument("--conf", type=float, default=0.3, help="Box/text confidence threshold (default 0.3)")
     parser.add_argument("--limit", type=int, default=None, help="Randomly sample N images instead of labeling everything (for a quick dry run)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for --limit sampling")
+    parser.add_argument(
+        "--max-box-frac", type=float, default=1.0,
+        help="Drop boxes covering more than this fraction of the image (e.g. 0.25 for tires, "
+             "where Grounding DINO sometimes boxes the whole car); default 1.0 keeps all",
+    )
     args = parser.parse_args()
 
     try:
@@ -113,6 +119,8 @@ def main() -> None:
             y1, y2 = max(0.0, min(y1, h)), max(0.0, min(y2, h))
             cx, cy = ((x1 + x2) / 2) / w, ((y1 + y2) / 2) / h
             bw, bh = (x2 - x1) / w, (y2 - y1) / h
+            if bw * bh > args.max_box_frac:
+                continue
             lines.append(f"{class_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
             class_counts[class_names[class_id]] += 1
 

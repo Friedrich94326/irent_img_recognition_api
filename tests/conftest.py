@@ -13,10 +13,11 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from app.api.deps import get_evaluator, get_settings  # noqa: E402
+from app.api.deps import get_evaluator, get_settings, get_tire_detector  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.services.evaluator import MockEvaluator  # noqa: E402
+from app.services.tire_detector import MockTireDetector  # noqa: E402
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def evaluator()-> MockEvaluator:
 def client(evaluator: MockEvaluator) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_evaluator] = lambda: evaluator
+    app.dependency_overrides[get_tire_detector] = MockTireDetector
     # Isolate from any local .env (e.g. real YOLO weights configured for dev use)
     # so tests reflect the mocked detector regardless of host machine config.
     app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
