@@ -1,9 +1,12 @@
 """Tire detectors.
 
-Mirrors :mod:`app.services.evaluator`: :class:`YOLOTireDetector` wraps a one-class Ultralytics
-model trained on auto-labelled iRent photos (see ``scripts/ontology_tire.yaml``), and
-:class:`MockTireDetector` returns deterministic boxes so the endpoint works before any weights
-exist. :func:`build_tire_detector` falls back to the mock if the real model cannot be loaded.
+Mirrors :mod:`app.services.evaluator`: :class:`YOLOTireDetector` wraps an Ultralytics model
+trained on iRent photos - either the one-class tire model (``scripts/train_tire_detector.py``) or
+the tyre + license-plate model (``scripts/train_tyre_plate_detector.py``), whose other classes
+are ignored - and
+:class:`MockTireDetector` returns deterministic boxes for tests and demos.
+:func:`build_tire_detector` uses the mock only when explicitly requested; missing or broken
+weights raise instead of silently serving fake tires.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ from PIL import Image
 from app.config import Settings
 
 logger = logging.getLogger(__name__)
+
+_TIRE_CLASS_NAMES = {"tyre", "tire"}
 
 
 @dataclass(frozen=True)
@@ -60,6 +65,17 @@ class MockTireDetector(TireDetector):
         return sorted(tires, key=lambda t: t.confidence, reverse=True)
 
 
+def tire_class_ids(names: dict[int, str]) -> list[int] | None:
+    """Class ids to keep: ``None`` (all) for a one-class model, else those named tyre/tire."""
+
+    if len(names) == 1:
+        return None
+    ids = [i for i, name in names.items() if name.lower() in _TIRE_CLASS_NAMES]
+    if not ids:
+        raise ValueError(f"tire model has no tyre/tire class: {names}")
+    return ids
+
+
 class YOLOTireDetector(TireDetector):
     """Ultralytics wrapper; ``ultralytics`` is imported lazily so the mock never needs it."""
 
@@ -75,10 +91,16 @@ class YOLOTireDetector(TireDetector):
         self._conf = settings.tire_confidence_threshold
         self._iou = settings.yolo_iou_threshold
         self._device = settings.tire_device or settings.yolo_device
+        self._classes = tire_class_ids(self._model.names)
 
     def detect(self, image: Image.Image) -> list[RawTire]:
         results = self._model.predict(
-            source=image, conf=self._conf, iou=self._iou, device=self._device, verbose=False
+            source=image,
+            conf=self._conf,
+            iou=self._iou,
+            device=self._device,
+            classes=self._classes,
+            verbose=False,
         )
         tires: list[RawTire] = []
         for result in results:
@@ -92,19 +114,25 @@ class YOLOTireDetector(TireDetector):
 
 
 def build_tire_detector(settings: Settings) -> TireDetector:
-    """Use the YOLO tire model when its weights are configured and load; otherwise the mock."""
+    """Build the YOLO tire model, or the mock only if ``IRENT_TIRE_USE_MOCK=true``.
 
+    Unset, missing or unloadable weights raise rather than silently serving fake tires.
+    """
+
+    if settings.tire_use_mock:
+        logger.warning("IRENT_TIRE_USE_MOCK is set: tire results are FAKE")
+        return MockTireDetector()
+    hint = "Set IRENT_TIRE_WEIGHTS_PATH, or IRENT_TIRE_USE_MOCK=true to run with fake tire output."
     weights = settings.tire_weights_path
     if weights is None:
-        logger.info("No tire weights configured - using mock tire detector.")
-        return MockTireDetector()
+        raise RuntimeError(f"No tire weights configured. {hint}")
     if not weights.exists():
-        logger.warning("Tire weights not found at %s - falling back to mock detector.", weights)
-        return MockTireDetector()
+        raise RuntimeError(f"Tire weights not found at {weights}. {hint}")
     try:
         detector = YOLOTireDetector(settings)
-        logger.info("Loaded tire detector from %s.", weights)
-        return detector
-    except Exception:  # noqa: BLE001 - any import/load failure should degrade gracefully
-        logger.exception("Failed to load tire detector - falling back to mock detector.")
-        return MockTireDetector()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not load the tire detector from {weights} ({type(exc).__name__}: {exc}). {hint}"
+        ) from exc
+    logger.info("Loaded tire detector from %s.", weights)
+    return detector

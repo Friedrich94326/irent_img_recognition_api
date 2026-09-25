@@ -151,6 +151,49 @@ def test_recognizer_stops_at_wide_crop_when_it_reads_a_plate() -> None:
     assert all(shape[1] == 640 for shape in rec._reader.shapes)
 
 
+class _FirstCropReader(_FakeReader):
+    """Reads a plate from the first crop only, so the test sees which quad was tried first."""
+
+    def readtext(self, arr, **_):
+        self.shapes.append(arr.shape)
+        h, w = arr.shape[:2]
+        text = "ABC-1234" if len(self.shapes) == 1 else "XY"
+        return [([[0, 0], [w, 0], [w, h], [0, h]], text, 0.9)]
+
+
+def test_recognizer_reads_plate_detector_boxes_before_locator() -> None:
+    rec = EasyOCRPlateRecognizer.__new__(EasyOCRPlateRecognizer)
+    rec._reader, rec._use_locator = _FirstCropReader(), True
+    calls = []
+
+    def detector(image):
+        calls.append(image.size)
+        return [(300.0, 380.0, 520.0, 452.0)]
+
+    rec._plate_detector = detector
+    plates = rec.read(_scene_with_plate())
+    assert calls == [(800, 600)]
+    first = next(p for p in plates if p.text == "ABC-1234")
+    x1, y1, x2, y2 = first.xyxy
+    assert abs(x1 - 300) < 25 and abs(y1 - 380) < 25 and abs(x2 - 520) < 25 and abs(y2 - 452) < 25
+
+
+def test_build_plate_recognizer_without_detector_weights(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    def fake_init(self, gpu=False, use_locator=True, plate_detector=None):
+        captured["detector"] = plate_detector
+
+    monkeypatch.setattr(EasyOCRPlateRecognizer, "__init__", fake_init)
+    build_plate_recognizer(Settings(_env_file=None, plate_use_mock=False))
+    assert captured["detector"] is None
+    missing = tmp_path / "missing.pt"
+    build_plate_recognizer(
+        Settings(_env_file=None, plate_use_mock=False, plate_detector_weights_path=missing)
+    )
+    assert captured["detector"] is None  # missing weights: OpenCV locator only, no crash
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

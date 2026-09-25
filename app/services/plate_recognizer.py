@@ -55,6 +55,8 @@ _BORDER_TRIM_FRAC = 0.04  # share of each side blanked so the plate frame is not
 _LETTER_SWAPS = str.maketrans("KW", "WK")
 _ALT_CONFIDENCE_FACTOR = 0.5
 _REREAD_PAD_FRAC = 0.15  # margin around a whole-frame hit before upscaling it for a second look
+_DETECTOR_PAD_FRAC = 0.05  # detector boxes hug the plate; keep its frame inside the crop
+_PLATE_CLASS_NAMES = {"license_plate", "plate"}
 # Minimum widths plate crops are upscaled to, tried in order until one yields a valid plate. On
 # the iRent benchmark photos 640 px read W/K/H and dropped glyphs best; 320 px rescues the rest.
 _CROP_WIDTHS = (640, 320)
@@ -182,21 +184,109 @@ def _disable_cuda_pin_memory() -> None:
     torch.Tensor.pin_memory = patched
 
 
+def _padded_quad(xyxy: tuple[float, float, float, float], pad_frac: float) -> np.ndarray:
+    """Corners (tl, tr, br, bl) of ``xyxy`` grown by ``pad_frac`` of its size on every side."""
+
+    x1, y1, x2, y2 = xyxy
+    pad_x, pad_y = (x2 - x1) * pad_frac, (y2 - y1) * pad_frac
+    return np.array(
+        [
+            [x1 - pad_x, y1 - pad_y],
+            [x2 + pad_x, y1 - pad_y],
+            [x2 + pad_x, y2 + pad_y],
+            [x1 - pad_x, y2 + pad_y],
+        ],
+        dtype="float32",
+    )
+
+
+class YOLOPlateDetector:
+    """Finds plate boxes with an Ultralytics model that has a ``license_plate`` class.
+
+    Called with an RGB image, it returns ``xyxy`` boxes, most confident first. ``ultralytics`` is
+    imported lazily so the recogniser works without it when no plate weights are configured.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        from ultralytics import YOLO  # noqa: PLC0415
+
+        if settings.plate_detector_weights_path is None:
+            raise ValueError("plate_detector_weights_path is not configured")
+        self._model = YOLO(str(settings.plate_detector_weights_path))
+        self._classes = [
+            i for i, name in self._model.names.items() if name.lower() in _PLATE_CLASS_NAMES
+        ]
+        if not self._classes:
+            raise ValueError(f"plate model has no license_plate class: {self._model.names}")
+        self._conf = settings.plate_detector_confidence_threshold
+        self._iou = settings.yolo_iou_threshold
+        self._device = settings.plate_device or settings.yolo_device
+
+    def __call__(self, image: Image.Image) -> list[tuple[float, float, float, float]]:
+        results = self._model.predict(
+            source=image,
+            conf=self._conf,
+            iou=self._iou,
+            device=self._device,
+            classes=self._classes,
+            verbose=False,
+        )
+        scored: list[tuple[float, tuple[float, float, float, float]]] = []
+        for result in results:
+            boxes = getattr(result, "boxes", None)
+            if boxes is None:
+                continue
+            for box in boxes:
+                x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
+                scored.append((float(box.conf[0]), (x1, y1, x2, y2)))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [xyxy for _, xyxy in scored]
+
+
+def build_plate_detector(settings: Settings) -> YOLOPlateDetector | None:
+    """Load the learned plate detector if configured; ``None`` (OpenCV locator only) otherwise."""
+
+    weights = settings.plate_detector_weights_path
+    if weights is None:
+        return None
+    if not weights.exists():
+        logger.warning("Plate detector weights not found at %s - OpenCV locator only.", weights)
+        return None
+    try:
+        detector = YOLOPlateDetector(settings)
+        logger.info("Loaded plate detector from %s.", weights)
+        return detector
+    except Exception:  # noqa: BLE001 - a broken detector must not take plate reading down
+        logger.exception("Failed to load plate detector - using the OpenCV locator only.")
+        return None
+
+
 class EasyOCRPlateRecognizer(PlateRecognizer):
-    """OpenCV finds plate-shaped regions; EasyOCR reads only those crops.
+    """OpenCV (and, if configured, a learned plate detector) finds plate regions; EasyOCR reads
+    only those crops.
 
     If no region yields a valid plate, the whole image is read as a fallback.
     """
 
     name = "opencv+easyocr"
+    _plate_detector: Callable[[Image.Image], list[tuple[float, float, float, float]]] | None = None
 
-    def __init__(self, gpu: bool = False, use_locator: bool = True) -> None:
+    def __init__(
+        self,
+        gpu: bool = False,
+        use_locator: bool = True,
+        plate_detector: Callable[[Image.Image], list[tuple[float, float, float, float]]]
+        | None = None,
+    ) -> None:
         import easyocr  # noqa: PLC0415 - heavy; deferred so the mock works without it
 
         if not gpu:
             _disable_cuda_pin_memory()
         self._reader = easyocr.Reader(["en"], gpu=gpu, verbose=False)
         self._use_locator = use_locator
+        self._plate_detector = plate_detector
+        if plate_detector is not None:
+            self.name = "yolo+opencv+easyocr"
 
     def _ocr(
         self,
@@ -261,17 +351,7 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
 
         quad = refine_plate_quad(rgb, xyxy)
         if quad is None:
-            x1, y1, x2, y2 = xyxy
-            pad_x, pad_y = (x2 - x1) * _REREAD_PAD_FRAC, (y2 - y1) * _REREAD_PAD_FRAC
-            quad = np.array(
-                [
-                    [x1 - pad_x, y1 - pad_y],
-                    [x2 + pad_x, y1 - pad_y],
-                    [x2 + pad_x, y2 + pad_y],
-                    [x1 - pad_x, y2 + pad_y],
-                ],
-                dtype="float32",
-            )
+            quad = _padded_quad(xyxy, _REREAD_PAD_FRAC)
         return self._read_quad(rgb, quad, min_width)
 
     def _read_at_width(
@@ -305,7 +385,16 @@ class EasyOCRPlateRecognizer(PlateRecognizer):
             (round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS
         )
         rgb = np.asarray(image.convert("RGB"))
-        quads = [c.quad / scale for c in locate_plate_candidates(work)] if self._use_locator else []
+        # Learned plate boxes first: _read_at_width stops at the first crop that reads a valid
+        # plate, so the OpenCV candidates and the whole-frame scan only run when these fail.
+        quads: list[np.ndarray] = []
+        if self._plate_detector is not None:
+            for xyxy in self._plate_detector(work):
+                box = tuple(v / scale for v in xyxy)
+                quad = refine_plate_quad(rgb, box)
+                quads.append(quad if quad is not None else _padded_quad(box, _DETECTOR_PAD_FRAC))
+        if self._use_locator:
+            quads.extend(c.quad / scale for c in locate_plate_candidates(work))
 
         cached_hits: list[list[RawPlate]] = []
 
@@ -442,7 +531,9 @@ def build_plate_recognizer(settings: Settings) -> PlateRecognizer:
     device = settings.plate_device or settings.yolo_device
     try:
         return EasyOCRPlateRecognizer(
-            gpu=device != "cpu", use_locator=settings.plate_use_opencv_locator
+            gpu=device != "cpu",
+            use_locator=settings.plate_use_opencv_locator,
+            plate_detector=build_plate_detector(settings),
         )
     except Exception as exc:
         raise RuntimeError(

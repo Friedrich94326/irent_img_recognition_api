@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -13,6 +14,7 @@ from app.services.tire_detector import (
     RawTire,
     TireDetector,
     build_tire_detector,
+    tire_class_ids,
 )
 
 ENDPOINT = "/api/v1/tire/detect"
@@ -80,10 +82,25 @@ def test_mock_is_deterministic_and_inside_image() -> None:
         assert 0 <= x1 < x2 <= 640 and 0 <= y1 < y2 <= 480
 
 
-def test_build_tire_detector_falls_back_to_mock_without_weights(tmp_path: Path) -> None:
-    assert build_tire_detector(Settings(_env_file=None)).is_mock
-    missing = Settings(_env_file=None, tire_weights_path=tmp_path / "missing.pt")
-    assert build_tire_detector(missing).is_mock
+def test_build_tire_detector_raises_instead_of_mocking(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="IRENT_TIRE_USE_MOCK"):
+        build_tire_detector(Settings(_env_file=None, tire_use_mock=False))
+    missing = Settings(
+        _env_file=None, tire_use_mock=False, tire_weights_path=tmp_path / "missing.pt"
+    )
+    with pytest.raises(RuntimeError, match="not found"):
+        build_tire_detector(missing)
+
+
+def test_build_tire_detector_mock_only_when_requested() -> None:
+    assert build_tire_detector(Settings(_env_file=None, tire_use_mock=True)).is_mock
+
+
+def test_tire_class_ids_keeps_only_tyres_of_a_multi_class_model() -> None:
+    assert tire_class_ids({0: "tire"}) is None  # one-class model: keep everything
+    assert tire_class_ids({0: "tyre", 1: "license_plate"}) == [0]
+    with pytest.raises(ValueError, match="no tyre/tire class"):
+        tire_class_ids({0: "dent", 1: "scratch"})
 
 
 def test_health_reports_tire_detector(client: TestClient) -> None:

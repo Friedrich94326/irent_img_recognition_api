@@ -8,6 +8,7 @@ import os
 # Keep tests fast and hermetic: never load EasyOCR during app startup. This must run before
 # ``app.main`` is imported, because that module builds the app (and caches Settings) at import.
 os.environ.setdefault("IRENT_PLATE_USE_MOCK", "true")
+os.environ.setdefault("IRENT_TIRE_USE_MOCK", "true")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

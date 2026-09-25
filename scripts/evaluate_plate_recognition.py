@@ -10,6 +10,8 @@ Usage:
     python scripts/evaluate_plate_recognition.py
     python scripts/evaluate_plate_recognition.py --limit 40 --csv runs/plate_eval.csv
     python scripts/evaluate_plate_recognition.py --no-locator     # full-image OCR baseline
+    python scripts/evaluate_plate_recognition.py --plate-detector weights/tyre_plate.pt \
+        --dataset Datasets/Hotai_iRent_cars/auto_labelled/Test_data   # held-out cars only
 """
 from __future__ import annotations
 
@@ -25,7 +27,11 @@ from PIL import Image, ImageOps
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import get_settings  # noqa: E402
-from app.services.plate_recognizer import EasyOCRPlateRecognizer, resolve_plates  # noqa: E402
+from app.services.plate_recognizer import (  # noqa: E402
+    EasyOCRPlateRecognizer,
+    build_plate_detector,
+    resolve_plates,
+)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".jfif", ".png", ".webp"}
 _GT_RE = re.compile(r"([A-Z]{3})-?(\d{4})")
@@ -48,10 +54,22 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="Only score the first N images.")
     parser.add_argument("--csv", type=Path, default=Path("runs/plate_eval.csv"))
     parser.add_argument("--no-locator", action="store_true", help="OCR the full image only.")
+    parser.add_argument(
+        "--plate-detector",
+        type=Path,
+        default=None,
+        help="YOLO plate weights to try before the locator (e.g. weights/tyre_plate.pt).",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
-    recognizer = EasyOCRPlateRecognizer(use_locator=not args.no_locator)
+    detector = None
+    if args.plate_detector:
+        settings = settings.model_copy(update={"plate_detector_weights_path": args.plate_detector})
+        detector = build_plate_detector(settings)
+        if detector is None:
+            sys.exit(f"Could not load the plate detector from {args.plate_detector}")
+    recognizer = EasyOCRPlateRecognizer(use_locator=not args.no_locator, plate_detector=detector)
 
     images = [p for p in find_images(args.dataset) if ground_truth(p)]
     if args.limit:
