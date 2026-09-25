@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Damage Size Demo</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --border: #e2e5ea; --text: #1b2129; --text-dim: #667085;
+    --accent: #c1410c; --accent-dim: #f7e6dc; --tyre: #0369a1;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sev-none: #1a7f37; --sev-none-bg: #dcfce7;
+    --sev-minor: #a16207; --sev-minor-bg: #fef3c7;
+    --sev-moderate: #c2410c; --sev-moderate-bg: #ffedd5;
+    --sev-severe: #b91c1c; --sev-severe-bg: #fee2e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --panel: #1c1f26; --border: #2b2f38; --text: #e6e8ec; --text-dim: #9aa2b1;
+      --accent: #ff8a4c; --accent-dim: #3a2417; --tyre: #38bdf8;
+      --sev-none: #3fb950; --sev-none-bg: #123321;
+      --sev-minor: #e0b23d; --sev-minor-bg: #3a2f10;
+      --sev-moderate: #ff8a4c; --sev-moderate-bg: #3a2417;
+      --sev-severe: #f85149; --sev-severe-bg: #3b1618;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .meta { color: var(--text-dim); font: 12px var(--mono); overflow-wrap: anywhere; }
+  .lede { max-width: 70ch; color: var(--text-dim); margin: 12px 0 24px; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px;
+           list-style: none; padding: 0; margin: 0 0 12px; counter-reset: step; }
+  .steps li { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+              padding: 12px 14px; counter-increment: step; }
+  .steps li::before { content: counter(step); display: inline-grid; place-items: center;
+                      width: 22px; height: 22px; border-radius: 50%; margin-right: 8px;
+                      background: var(--accent-dim); color: var(--accent); font-weight: 700;
+                      font-size: 12px; }
+  .steps b { display: block; margin-top: 6px; }
+  .steps span { color: var(--text-dim); font-size: 13px; }
+  .note { font-size: 13px; color: var(--text-dim); margin: 0 0 28px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin-bottom: 16px; }
+  .legend i { display: inline-block; width: 14px; height: 14px; margin-right: 6px;
+              vertical-align: -2px; border: 3px solid; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+          gap: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+          overflow: hidden; display: flex; flex-direction: column; }
+  .card img { width: 100%; display: block; background: #000; cursor: zoom-in; }
+  .card header { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+                 padding: 12px 16px 4px; }
+  .card header span { font: 12px var(--mono); color: var(--text-dim); overflow-wrap: anywhere; }
+  .badge { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+           padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+  .sev-none { color: var(--sev-none); background: var(--sev-none-bg); }
+  .sev-minor { color: var(--sev-minor); background: var(--sev-minor-bg); }
+  .sev-moderate { color: var(--sev-moderate); background: var(--sev-moderate-bg); }
+  .sev-severe { color: var(--sev-severe); background: var(--sev-severe-bg); }
+  .table-wrap { overflow-x: auto; padding: 0 16px 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-dim); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  .arrow { color: var(--text-dim); margin: 0 4px; }
+  .notyre { padding: 0 16px 8px; font-size: 13px; color: var(--text-dim); }
+  .area { padding: 0 16px 8px; font-size: 14px; }
+  .area small { color: var(--text-dim); }
+  .fee { padding: 0 16px 10px; margin: 0; font-size: 15px; }
+  .fee b { font-size: 20px; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .impact { margin: 0 16px 10px; padding: 8px 12px; border-radius: 8px; font-size: 13px;
+            color: var(--sev-severe); background: var(--sev-severe-bg); }
+  .up { font-size: 11px; font-weight: 700; color: var(--sev-severe); margin-left: 6px; }
+  h2 { font-size: 22px; margin: 48px 0 4px; }
+  .concept { display: grid; gap: 16px; }
+  .concept figure { margin: 0; background: #fcfcfb; border: 1px solid var(--border);
+                    border-radius: 12px; padding: 12px; }
+  .concept img { width: 100%; display: block; cursor: zoom-in; }
+  h3 { font-size: 17px; margin: 28px 0 10px; }
+  h3 small { font-weight: 400; color: var(--text-dim); font-size: 13px; }
+  .steps-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(260px, 300px);
+               gap: 14px; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x mandatory; }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+          overflow: hidden; scroll-snap-align: start; display: flex; flex-direction: column; }
+  .step img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #000;
+              display: block; cursor: zoom-in; }
+  .step div { padding: 10px 12px 12px; font-size: 13px; color: var(--text-dim); }
+  .step b { display: block; color: var(--text); font-size: 14px; margin-bottom: 2px; }
+  .step b span { color: var(--accent); margin-right: 6px; }
+  @media (max-width: 640px) {
+    .steps-row { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: visible; }
+  }
+  .concept .step-arrow { text-align: center; color: var(--text-dim); font-size: 22px; line-height: 1; }
+  dialog { border: 0; padding: 0; background: transparent; max-width: 96vw; }
+  dialog img { max-width: 96vw; max-height: 92vh; display: block; }
+  dialog::backdrop { background: rgba(0,0,0,.8); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Damage size, measured against a tyre</h1>
+  <div class="meta">Damage model weights\car_damage.pt · tyre model weights\tyre_plate.pt · fee model weights\repair_fee_xgb.json (XGBoost, trained on simulated history) · generated 2026-09-26 01:26</div>
+  <p class="lede">A photo has no scale on its own, so a scratch box of 200 pixels could be a scuff
+    or half a door. Every rental car photo also shows a tyre of a roughly known size, so we use
+    the tyre as a ruler. Each detected damage is reported as a share of the tyre's area and as
+    an approximate area in cm², and its severity is moved up or down by that size.</p>
+  <ol class="steps">
+    <li><b>Detect damage</b><span>YOLO damage model: class, confidence and box</span></li>
+    <li><b>Detect the tyres</b><span>Tyre + plate model; each damage uses the nearest wheel</span></li>
+    <li><b>Tyre = 63 cm ruler</b><span>Longer ellipse axis ≈ true diameter, even at an angle</span></li>
+    <li><b>Size the damage</b><span>Box area ÷ tyre area, and cm² from the pixels-per-cm scale</span></li>
+    <li><b>Adjust severity</b><span>&lt; 5 % of tyre: one level down · &gt; 25 %: one level up</span></li>
+    <li><b>Merge &amp; check for impact</b><span>Overlaps counted once; a collision pattern makes the photo severe</span></li>
+    <li><b>Estimate fee (XGBoost)</b><span>Damage mix, sizes and impact → NT$; trained on simulated repair history for now</span></li>
+  </ol>
+  <p class="note">The cm² figure assumes the damage is about as far from the camera as the tyre,
+    and it uses the box rather than the exact damage outline, so read it as an estimate.</p>
+  <div class="legend"><span><i style="border-color:var(--accent)"></i>Damage box</span>
+    <span><i style="border-color:var(--tyre);border-radius:50%"></i>Tyre used as reference</span>
+    <span><i style="border-color:var(--sev-severe);border-style:dashed"></i>Impact (likely collision)</span></div>
+  <div class="grid" id="grid"></div>
+  <section id="ip" hidden>
+    <h2>Image processing behind the scenes</h2>
+    <p class="lede">Classic computer-vision steps that fit rental-car photos: one finds the
+      licence plate for OCR, the other removes light reflections before damage detection.
+      <span class="meta" id="ip-source"></span></p>
+    <h3>Locating the licence plate <small>· the OpenCV pipeline the plate API uses</small></h3>
+    <div class="steps-row" id="ip-plate"></div>
+    <h3>Filtering light reflections <small>· concept, not in the API yet</small></h3>
+    <div class="steps-row" id="ip-glare"></div>
+  </section>
+  <section id="fee-concept" hidden>
+    <h2>How the fee model works</h2>
+    <p class="lede">Past repair cases teach an XGBoost regression model what each kind, size and
+      combination of damage costs; the model then prices any new photo from the same features.
+      It is trained on simulated history until real repair invoices are exported.</p>
+    <div class="concept" id="concept"></div>
+  </section>
+</main>
+<dialog id="zoom"><img alt="" /></dialog>
+<script>
+  const cards = [{"image": "demo/02.jpg", "source": "Test_data/RDJ-0793左前 還.jpg", "tyre_confidence": 0.951436460018158, "overall": "severe", "base_overall": "severe", "area": {"union_px": 42479.14527151734, "summed_px": 42479.14527151734, "union_share": 0.7863308588547828, "summed_share": 0.7863308588547828, "union_cm2": 2244.9465206570458}, "impacts": [], "fee": 15600.0, "detections": [{"damage_class": "dent", "confidence": 0.8300257325172424, "xyxy": [869.93896484375, 352.5235595703125, 1123.6102294921875, 519.9810180664062], "base_severity": "moderate", "severity": "severe", "tyre_share": 0.7863308588547828, "area_cm2": 2244.9465206570458, "size_band": "large", "tyre_index": 1}]}, {"image": "demo/03.jpg", "source": "Validation_data/RDX-2376右後 還.jpg", "tyre_confidence": 0.9301081299781799, "overall": "severe", "base_overall": "severe", "area": {"union_px": 22492.2306060791, "summed_px": 22492.2306060791, "union_share": 0.4819968508928151, "summed_share": 0.4819968508928151, "union_cm2": 1058.570042120767}, "impacts": [], "fee": 6400.0, "detections": [{"damage_class": "lamp_broken", "confidence": 0.4874664843082428, "xyxy": [617.568115234375, 253.36505126953125, 873.593505859375, 341.21661376953125], "base_severity": "moderate", "severity": "severe", "tyre_share": 0.4819968508928151, "area_cm2": 1058.570042120767, "size_band": "large", "tyre_index": 0}]}, {"image": "demo/04.jpg", "source": "Training_data/RCR-7661 左後 借.jpg", "tyre_confidence": 0.7714568972587585, "overall": "minor", "base_overall": "minor", "area": {"union_px": 12100.261430013925, "summed_px": 12100.261430013925, "union_share": 0.13161311332411912, "summed_share": 0.13161311332411912, "union_cm2": 338.32745973476403}, "impacts": [], "fee": 3300.0, "detections": [{"damage_class": "scratch", "confidence": 0.4024631977081299, "xyxy": [198.16482543945312, 651.9232788085938, 315.2491455078125, 755.2698364257812], "base_severity": "minor", "severity": "minor", "tyre_share": 0.13161311332411912, "area_cm2": 338.32745973476403, "size_band": "medium", "tyre_index": 0}]}, {"image": "demo/05.jpg", "source": "Training_data/RCR-7661 左後 還.jpg", "tyre_confidence": 0.5712190866470337, "overall": "severe", "base_overall": "severe", "area": {"union_px": 109597.45011009974, "summed_px": 137255.5367382071, "union_share": 0.7591627256441452, "summed_share": 0.9507455444926006, "union_cm2": 1601.251285728542}, "impacts": [{"box": [87.34485626220703, 570.4022216796875, 715.9769287109375, 843.2485961914062], "classes": ["dent", "scratch"], "reason": "3 damages of 2 kinds in one spot"}], "fee": 16700.0, "detections": [{"damage_class": "scratch", "confidence": 0.8426145911216736, "xyxy": [411.7156982421875, 570.4022216796875, 715.9769287109375, 843.2485961914062], "base_severity": "minor", "severity": "moderate", "tyre_share": 0.575041556653495, "area_cm2": 1212.8967885738452, "size_band": "large", "tyre_index": 0}, {"damage_class": "scratch", "confidence": 0.6411240100860596, "xyxy": [87.34485626220703, 591.0419311523438, 427.9292907714844, 672.5665893554688], "base_severity": "minor", "severity": "minor", "tyre_share": 0.1923305213752481, "area_cm2": 405.6699364100713, "size_band": "medium", "tyre_index": 0}, {"damage_class": "dent", "confidence": 0.5689991116523743, "xyxy": [90.99567413330078, 590.6158447265625, 428.66290283203125, 669.0153198242188], "base_severity": "moderate", "severity": "moderate", "tyre_share": 0.18337346646385758, "area_cm2": 386.77741810177884, "size_band": "medium", "tyre_index": 0}, {"damage_class": "tire_flat", "confidence": 0.44394823908805847, "xyxy": [64.11087036132812, 674.4776611328125, 494.1251220703125, 1007.0252685546875], "base_severity": "severe", "severity": "severe", "tyre_share": 0.9905379140640134, "area_cm2": 2089.275533268671, "size_band": "large", "tyre_index": 0}]}, {"image": "demo/01.jpg", "source": "Test_data/RDE-0073 車況回報.jfif", "tyre_confidence": null, "overall": "severe", "base_overall": "moderate", "area": {"union_px": 4275225.510113705, "summed_px": 5802576.310197953, "union_share": null, "summed_share": null, "union_cm2": null}, "impacts": [{"box": [459.5651550292969, 719.8046875, 2101.377685546875, 3200.5986328125], "classes": ["lamp_broken", "scratch"], "reason": "4 damages of 2 kinds in one spot"}], "fee": 13000.0, "detections": [{"damage_class": "scratch", "confidence": 0.6917333006858826, "xyxy": [782.5170288085938, 1640.092529296875, 2032.878173828125, 2640.84814453125], "base_severity": "minor", "severity": "minor", "tyre_share": null, "area_cm2": null, "size_band": null, "tyre_index": null}, {"damage_class": "scratch", "confidence": 0.6025279760360718, "xyxy": [1943.867919921875, 101.99750518798828, 2887.179931640625, 566.3406372070312], "base_severity": "minor", "severity": "minor", "tyre_share": null, "area_cm2": null, "size_band": null, "tyre_index": null}, {"damage_class": "lamp_broken", "confidence": 0.507033109664917, "xyxy": [530.8018188476562, 719.8046875, 2101.377685546875, 1653.34619140625], "base_severity": "moderate", "severity": "moderate", "tyre_share": null, "area_cm2": null, "size_band": null, "tyre_index": null}, {"damage_class": "scratch", "confidence": 0.2632763087749481, "xyxy": [459.5651550292969, 1863.23486328125, 2036.2271728515625, 3200.5986328125], "base_severity": "none", "severity": "none", "tyre_share": null, "area_cm2": null, "size_band": null, "tyre_index": null}, {"damage_class": "scratch", "confidence": 0.26225152611732483, "xyxy": [1090.880859375, 2042.4058837890625, 2014.703369140625, 2625.2900390625], "base_severity": "none", "severity": "none", "tyre_share": null, "area_cm2": null, "size_band": null, "tyre_index": null}]}];
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+  const badge = s => `<span class="badge sev-${s}">${s}</span>`;
+  const pct = v => v == null ? '–' : (v * 100).toFixed(v < 0.1 ? 1 : 0) + ' %';
+  const cm2 = v => v == null ? '–' : '~' + Math.round(v).toLocaleString() + ' cm²';
+  const areaLine = a => {
+    if (!a.union_px) return '<small>Only a flat tyre, so no bodywork area.</small>';
+    if (a.union_share == null) return `<b>Damaged area (union):</b> ${Math.round(a.union_px).toLocaleString()} px² <small>· unscaled, no tyre in view${a.summed_px > a.union_px * 1.01 ? ` · boxes summed: ${Math.round(a.summed_px).toLocaleString()} px²` : ''}</small>`;
+    return `<b>Damaged area (union):</b> ${pct(a.union_share)} of tyre · ${cm2(a.union_cm2)}` +
+      (a.summed_share > a.union_share * 1.01 ? ` <small>· boxes summed: ${pct(a.summed_share)}</small>` : '');
+  };
+  document.getElementById('grid').innerHTML = cards.map(c => `
+    <article class="card">
+      <img src="${esc(c.image)}" alt="Annotated photo ${esc(c.source)}" loading="lazy" />
+      <header><span>${esc(c.source)}</span><span>${c.overall !== c.base_overall ? '<span class="up">↑ impact</span> ' : ''}${badge(c.overall)}</span></header>
+      <p class="area">${areaLine(c.area)}</p>
+      ${c.fee == null ? '' : `<p class="fee">Estimated repair fee: <b>NT$${Math.round(c.fee).toLocaleString()}</b></p>`}
+      ${c.impacts.map(i => `<p class="impact"><b>Impact:</b> ${esc(i.classes.map(k => k.replace(/_/g, ' ')).join(' + '))}. ${esc(i.reason)}. Raised to severe (likely collision or broken bumper).</p>`).join('')}
+      ${c.tyre_confidence == null ? '<p class="notyre">No tyre in view, so there is no scale; severity comes from class and confidence only.</p>' : ''}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Damage</th><th class="num">Conf.</th><th class="num">Of tyre</th>
+          <th class="num">Est. area</th><th>Severity</th></tr></thead>
+        <tbody>${c.detections.map(d => `<tr>
+          <td>${esc(d.damage_class.replace(/_/g, ' '))}</td>
+          <td class="num">${d.confidence.toFixed(2)}</td>
+          <td class="num">${pct(d.tyre_share)}</td>
+          <td class="num">${cm2(d.area_cm2)}</td>
+          <td>${d.base_severity === d.severity ? badge(d.severity)
+               : badge(d.base_severity) + '<span class="arrow">→</span>' + badge(d.severity)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </article>`).join('');
+  const ip = {"plate": [{"src": "demo/ip_plate_1.jpg", "title": "Original photo", "caption": "The plate is a small part of a busy scene."}, {"src": "demo/ip_plate_2.jpg", "title": "Bilateral filter", "caption": "Grayscale, then smooth paint texture and noise while keeping sharp edges such as the plate border."}, {"src": "demo/ip_plate_3.jpg", "title": "Canny edges", "caption": "Keep only strong intensity changes: outlines, characters, panel gaps."}, {"src": "demo/ip_plate_4.jpg", "title": "Morphological close", "caption": "A wide 17×3 kernel bridges the gaps between characters, so a plate becomes one solid blob."}, {"src": "demo/ip_plate_5.jpg", "title": "Shape filter", "caption": "41 contours (grey); 0 have a plate-like aspect, size and rectangularity (blue); none survives, so the classic pipeline finds no plate here."}, {"src": "demo/ip_plate_6.jpg", "title": "Learned plate detector", "caption": "So the API asks the YOLO tyre + plate model first: it returns a box around the plate (orange)."}, {"src": "demo/ip_plate_7.jpg", "title": "Local edge refinement", "caption": "Plain Canny edges in a small window around that box (no wide close) recover the plate's own border, so the corners follow its real tilt."}, {"src": "demo/ip_plate_8.jpg", "title": "Perspective warp", "caption": "The four corners are mapped to an upright rectangle, so OCR reads a straight, enlarged plate."}], "glare": [{"src": "demo/ip_glare_1.jpg", "title": "Original photo", "caption": "Sunlight on the windscreen and bonnet creates bright white patches that the damage model can mistake for damage."}, {"src": "demo/ip_glare_2.jpg", "title": "Glare mask", "caption": "Pixels that are very bright but nearly colourless (HSV V ≥ 235, S ≤ 40) are specular reflections: 0.6% of this photo (red)."}, {"src": "demo/ip_glare_3.jpg", "title": "CLAHE contrast", "caption": "Contrast-limited adaptive histogram equalisation on the lightness channel brings back detail in washed-out and shadowed areas without shifting colours."}, {"src": "demo/ip_glare_4.jpg", "title": "Inpainting", "caption": "The masked highlights are filled in from the surrounding texture (Telea inpainting), removing the reflection before detection."}, {"src": "demo/ip_glare_5.jpg", "title": "Effect on the damage model", "caption": "Before: glass shatter 0.68. After: glass shatter 0.37. A looser mask (V ≥ 200) removes this false detection but also erases real white scratches on other photos, so the threshold is a trade-off to tune on labelled data. Candidate pre-processing step, not in the API yet."}], "glare_effect": {"before": "glass shatter 0.68", "after": "glass shatter 0.37"}, "source": "Validation_data/RDU-6956 右前 借.jpg"};
+  if (ip.plate.length || ip.glare.length) {
+    document.getElementById('ip').hidden = false;
+    document.getElementById('ip-source').textContent = `Photo: ${ip.source}`;
+    const row = steps => steps.map((s, i) => `<article class="step">
+      <img src="${esc(s.src)}" alt="${esc(s.title)}" loading="lazy" />
+      <div><b><span>${i + 1}</span>${esc(s.title)}</b>${esc(s.caption)}</div></article>`).join('');
+    document.getElementById('ip-plate').innerHTML = row(ip.plate);
+    document.getElementById('ip-glare').innerHTML = row(ip.glare);
+    document.getElementById('ip').addEventListener('click', e => {
+      if (e.target.tagName !== 'IMG') return;
+      zoomImage(e.target.src);
+    });
+  }
+  function zoomImage(src) {
+    const dialog = document.getElementById('zoom');
+    dialog.querySelector('img').src = src;
+    dialog.showModal();
+  }
+  const explainers = ["demo/fee_1_history.png", "demo/fee_2_xgboost.png", "demo/fee_3_regression.png"];
+  if (explainers.length) {
+    document.getElementById('fee-concept').hidden = false;
+    document.getElementById('concept').innerHTML = explainers.map(src =>
+      `<figure><img src="${esc(src)}" alt="Fee model step" loading="lazy" /></figure>`
+    ).join('<div class="step-arrow">↓</div>');
+  }
+  const zoom = document.getElementById('zoom');
+  document.getElementById('concept').addEventListener('click', e => {
+    if (e.target.tagName !== 'IMG') return;
+    zoom.querySelector('img').src = e.target.src;
+    zoom.showModal();
+  });
+  document.getElementById('grid').addEventListener('click', e => {
+    if (e.target.tagName !== 'IMG') return;
+    zoom.querySelector('img').src = e.target.src;
+    zoom.showModal();
+  });
+  zoom.addEventListener('click', () => zoom.close());
+</script>
+</body>
+</html>

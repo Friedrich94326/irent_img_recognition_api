@@ -57,11 +57,21 @@ class Settings(BaseSettings):
         le=1.0,
         description="Minimum confidence to report text that does not match a plate format.",
     )
+    plate_detector_weights_path: Path | None = Field(
+        default=None,
+        description="YOLO .pt with a 'license_plate' class. If set, its plate boxes are read "
+        "before the OpenCV locator's candidates; if unset or missing, only the locator is used.",
+    )
+    plate_detector_confidence_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
 
     # --- Tire detection ----------------------------------------------------
+    tire_use_mock: bool = Field(
+        default=False, description="Force the mock tire detector (fake boxes)."
+    )
     tire_weights_path: Path | None = Field(
         default=None,
-        description="Path to a one-class YOLO tire .pt file. If unset or missing, a mock is used.",
+        description="Path to a YOLO .pt file that detects tires (a one-class model, or one with a "
+        "'tyre'/'tire' class among others). Required unless IRENT_TIRE_USE_MOCK=true.",
     )
     tire_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     tire_device: str | None = Field(

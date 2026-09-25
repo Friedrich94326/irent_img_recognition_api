@@ -1,0 +1,3 @@
+# Repair-fee model tooling (scripts/repair_fee_model.py and the fee line in
+# scripts/build_demo_page.py). Not used by the API at runtime and not needed for tests/CI.
+xgboost>=3.0
