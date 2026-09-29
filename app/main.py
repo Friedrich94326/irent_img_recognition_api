@@ -15,6 +15,7 @@ from app.core.exceptions import register_exception_handlers
 from app.services.evaluator import build_evaluator
 from app.services.plate_recognizer import build_plate_recognizer
 from app.services.tire_detector import build_tire_detector
+from app.services.vehicle_repository import build_vehicle_repository
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,10 +36,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.tire_detector.name,
         app.state.tire_detector.is_mock,
     )
+    app.state.vehicle_repository = build_vehicle_repository(settings)
     yield
     app.state.evaluator = None
     app.state.plate_recognizer = None
     app.state.tire_detector = None
+    app.state.vehicle_repository = None
 
 
 def create_app() -> FastAPI:

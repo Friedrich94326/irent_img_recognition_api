@@ -78,6 +78,15 @@ class Settings(BaseSettings):
         default=None, description="Device for the tire model. Unset: follow IRENT_YOLO_DEVICE."
     )
 
+    # --- iRent ops database -----------------------------------------------
+    db_path: Path | None = Field(
+        default=None,
+        description="SQLite file of the iRent ops back office (e.g. data/irent_op_backend.sqlite). "
+        "When set, results are linked to `vehicles` by plate and damage findings are written to "
+        "`damage_annotations`, `ai_anomaly_alerts` and `vehicles.latest_anomaly`. Unset or "
+        "missing: no DB access.",
+    )
+
     # --- Upload constraints ----------------------------------------------
     max_image_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     allowed_content_types: set[str] = {"image/jpeg", "image/png", "image/webp"}

@@ -8,6 +8,7 @@ from app.config import Settings, get_settings
 from app.services.evaluator import DamageEvaluator
 from app.services.plate_recognizer import PlateRecognizer
 from app.services.tire_detector import TireDetector
+from app.services.vehicle_repository import VehicleRepository
 
 
 def get_evaluator(request: Request) -> DamageEvaluator:
@@ -28,6 +29,13 @@ def get_tire_detector(request: Request) -> TireDetector:
     return request.app.state.tire_detector
 
 
+
+def get_vehicle_repository(request: Request) -> VehicleRepository | None:
+    """Return the iRent ops database repository, or ``None`` when no database is configured."""
+
+    return request.app.state.vehicle_repository
+
+
 SettingsDep = Depends(get_settings)
 EvaluatorDep = Depends(get_evaluator)
 
@@ -39,4 +47,5 @@ __all__ = [
     "get_plate_recognizer",
     "get_settings",
     "get_tire_detector",
+    "get_vehicle_repository",
 ]

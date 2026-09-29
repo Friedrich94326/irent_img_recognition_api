@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import BoundingBox, DamageClass, ImageMetadata, Severity
+from app.schemas.vehicle import DamageRecord, VehicleLink
 
 
 class Detection(BaseModel):
@@ -99,3 +100,13 @@ class DamageEvaluationResponse(BaseModel):
     model_version: str
     is_mock: bool = Field(description="True when results came from the built-in mock detector.")
     inference_ms: float = Field(ge=0.0, description="Wall-clock inference time in milliseconds.")
+    vehicle: VehicleLink | None = Field(
+        default=None,
+        description="Matched vehicles row, or null (no database, no plate, or plate not "
+        "registered).",
+    )
+    db_record: DamageRecord | None = Field(
+        default=None,
+        description="Rows written for this evaluation; null when nothing was written "
+        "(no matched vehicle, or no damage detected).",
+    )

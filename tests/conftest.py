@@ -14,7 +14,12 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from app.api.deps import get_evaluator, get_settings, get_tire_detector  # noqa: E402
+from app.api.deps import (  # noqa: E402
+    get_evaluator,
+    get_settings,
+    get_tire_detector,
+    get_vehicle_repository,
+)
 from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.services.evaluator import MockEvaluator  # noqa: E402
@@ -34,6 +39,8 @@ def client(evaluator: MockEvaluator) -> TestClient:
     # Isolate from any local .env (e.g. real YOLO weights configured for dev use)
     # so tests reflect the mocked detector regardless of host machine config.
     app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
+    # Never touch the real ops database (IRENT_DB_PATH in a local .env) from tests.
+    app.dependency_overrides[get_vehicle_repository] = lambda: None
     # The lifespan still runs and sets app.state.evaluator; the override wins for requests.
     with TestClient(app) as test_client:
         yield test_client

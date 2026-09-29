@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from app.schemas.common import BoundingBox, ImageMetadata
+from app.schemas.vehicle import VehicleLink
 
 
 class TireEllipse(BaseModel):
@@ -37,3 +38,8 @@ class TireDetectionResponse(BaseModel):
     model_name: str
     is_mock: bool
     inference_ms: float
+    vehicle: VehicleLink | None = Field(
+        default=None,
+        description="Matched vehicles row, or null (no database, no plate, or plate not "
+        "registered).",
+    )
