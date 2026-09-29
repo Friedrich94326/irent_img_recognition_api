@@ -24,7 +24,7 @@ from ultralytics import YOLO
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data", type=Path, default=Path("Datasets/Hotai_finetune/data.yaml"))
+    parser.add_argument("--data", type=Path, default=Path("data/Hotai_finetune/data.yaml"))
     parser.add_argument("--weights", type=Path, default=Path("weights/car_damage.pt"))
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--imgsz", type=int, default=512)

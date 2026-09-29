@@ -26,7 +26,7 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 
-DATASET = Path("Datasets/Hotai_iRent_cars")
+DATASET = Path("data/Hotai_iRent_cars")
 SPLITS = {"train": "Training_data", "val": "Validation_data", "test": "Test_data"}
 NON_DAMAGE = {"tyre", "license_plate"}
 

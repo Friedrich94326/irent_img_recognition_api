@@ -30,7 +30,7 @@ FEATURES = (
     + ["union_share", "n_detections", "impact", "n_impacts"]
 )
 MODEL_PATH = Path("weights/repair_fee_xgb.json")
-SIMULATED_CSV = Path("Datasets/repair_fee_simulated.csv")
+SIMULATED_CSV = Path("data/repair_fee_simulated.csv")
 
 # --- features --------------------------------------------------------------------------------
 

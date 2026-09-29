@@ -20,10 +20,10 @@ of scope for this pass.
 
 Usage:
     python scripts/evaluate_hotai_dataset.py \
-        --dataset "Datasets/Hotai_iRent_cars/Annotated"
+        --dataset "data/Hotai_iRent_cars/Annotated"
 
     python scripts/evaluate_hotai_dataset.py \
-        --manifest Datasets/Hotai_finetune/held_out_manifest.csv \
+        --manifest data/Hotai_finetune/held_out_manifest.csv \
         --weights weights/car_damage_hotai.pt
 """
 from __future__ import annotations
@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument(
         "--dataset",
         type=Path,
-        default=Path("Datasets/Hotai_iRent_cars/Annotated"),
+        default=Path("data/Hotai_iRent_cars/Annotated"),
         help="Folder of images with optional same-named labelme .json sidecars",
     )
     parser.add_argument(

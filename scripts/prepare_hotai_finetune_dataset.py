@@ -46,7 +46,7 @@ LABEL_MAP = {
     "parts_boken": "missing_part",
     "parts_missing": "missing_part",
 }
-# Same id order as Datasets/CarDD_yolo/data.yaml for classes 0-5, so those ids keep
+# Same id order as data/CarDD_yolo/data.yaml for classes 0-5, so those ids keep
 # lining up with the checkpoint being fine-tuned; missing_part is new (id 6).
 CLASS_NAMES = ["dent", "scratch", "crack", "glass_shatter", "lamp_broken", "tire_flat", "missing_part"]
 CLASS_IDS = {name: idx for idx, name in enumerate(CLASS_NAMES)}
@@ -122,9 +122,9 @@ def split_group(items: list[Path], val_fraction: float, rng: random.Random) -> t
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--annotated", type=Path, default=Path("Datasets/Hotai_iRent_cars/Annotated"))
-    parser.add_argument("--negatives", type=Path, default=Path("Datasets/Hotai_iRent_cars/Raw/沒有進行索賠"))
-    parser.add_argument("--output", type=Path, default=Path("Datasets/Hotai_finetune"))
+    parser.add_argument("--annotated", type=Path, default=Path("data/Hotai_iRent_cars/Annotated"))
+    parser.add_argument("--negatives", type=Path, default=Path("data/Hotai_iRent_cars/Raw/沒有進行索賠"))
+    parser.add_argument("--output", type=Path, default=Path("data/Hotai_finetune"))
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()

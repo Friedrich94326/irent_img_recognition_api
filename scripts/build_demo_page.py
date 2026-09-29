@@ -33,7 +33,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-SOURCE = Path("Datasets/Hotai_iRent_cars/auto_labelled")
+SOURCE = Path("data/Hotai_iRent_cars/auto_labelled")
 SPLIT_ORDER = ("Test_data", "Validation_data", "Training_data")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".jfif"}
 TYRE_DIAMETER_CM = 63.0

@@ -21,8 +21,9 @@ env/
 runs/
 weights/
 
-# Datasets — large data is not checked in (also see Datasets/.gitignore)
-Datasets/
+# data — large data is not checked in (also see data/.gitignore)
+data/
+!data/.sqlite
 
 # Loose archives / data dumps anywhere in the tree
 *.zip

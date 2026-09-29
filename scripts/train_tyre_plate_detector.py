@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 from PIL import Image, ImageOps
 
-SOURCE = Path("Datasets/Hotai_iRent_cars/auto_labelled")
+SOURCE = Path("data/Hotai_iRent_cars/auto_labelled")
 SPLITS = {"train": "Training_data", "val": "Validation_data", "test": "Test_data"}
 CLASS_NAMES = ["tyre", "license_plate"]
 CLASS_IDS = {name: idx for idx, name in enumerate(CLASS_NAMES)}
@@ -82,7 +82,7 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--source", type=Path, default=SOURCE)
-    parser.add_argument("--output", type=Path, default=Path("Datasets/Hotai_tyre_plate"))
+    parser.add_argument("--output", type=Path, default=Path("data/Hotai_tyre_plate"))
     parser.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starting point")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=25)

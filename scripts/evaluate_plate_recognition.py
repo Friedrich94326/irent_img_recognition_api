@@ -11,7 +11,7 @@ Usage:
     python scripts/evaluate_plate_recognition.py --limit 40 --csv runs/plate_eval.csv
     python scripts/evaluate_plate_recognition.py --no-locator     # full-image OCR baseline
     python scripts/evaluate_plate_recognition.py --plate-detector weights/tyre_plate.pt \
-        --dataset Datasets/Hotai_iRent_cars/auto_labelled/Test_data   # held-out cars only
+        --dataset data/Hotai_iRent_cars/auto_labelled/Test_data   # held-out cars only
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def find_images(root: Path) -> list[Path]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--dataset", type=Path, default=Path("Datasets/Hotai_iRent_cars/Raw"))
+    parser.add_argument("--dataset", type=Path, default=Path("data/Hotai_iRent_cars/Raw"))
     parser.add_argument("--limit", type=int, default=0, help="Only score the first N images.")
     parser.add_argument("--csv", type=Path, default=Path("runs/plate_eval.csv"))
     parser.add_argument("--no-locator", action="store_true", help="OCR the full image only.")

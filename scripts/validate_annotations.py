@@ -7,8 +7,8 @@ See .claude/skills/auto-annotate-dataset for the full workflow this fits into.
 
 Usage:
     python scripts/validate_annotations.py \
-        --dataset Datasets/Hotai_yolo_draft_sample \
-        --claim-root Datasets/Hotai_iRent_cars/Raw
+        --dataset data/Hotai_yolo_draft_sample \
+        --claim-root data/Hotai_iRent_cars/Raw
 """
 from __future__ import annotations
 

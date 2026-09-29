@@ -7,8 +7,8 @@ return, so a random split would leak the same car into both and inflate the val 
 trains from a COCO-pretrained checkpoint, and copies the best weights to weights/tire.pt.
 
 Usage:
-    python scripts/auto_annotate.py --input Datasets/Hotai_iRent_cars/Raw \
-        --output Datasets/Hotai_tire_draft --ontology scripts/ontology_tire.yaml \
+    python scripts/auto_annotate.py --input data/Hotai_iRent_cars/Raw \
+        --output data/Hotai_tire_draft --ontology scripts/ontology_tire.yaml \
         --max-box-frac 0.25
     python scripts/train_tire_detector.py --device 0
 Then set IRENT_TIRE_WEIGHTS_PATH=./weights/tire.pt in .env and restart the API.
@@ -66,8 +66,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--draft", type=Path, default=Path("Datasets/Hotai_tire_draft"))
-    parser.add_argument("--output", type=Path, default=Path("Datasets/Hotai_tire"))
+    parser.add_argument("--draft", type=Path, default=Path("data/Hotai_tire_draft"))
+    parser.add_argument("--output", type=Path, default=Path("data/Hotai_tire"))
     parser.add_argument("--model", default="yolov8n.pt", help="COCO-pretrained starting point")
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--imgsz", type=int, default=640)

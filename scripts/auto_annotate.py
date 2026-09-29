@@ -8,8 +8,8 @@ full workflow (choosing categories, reviewing output, training) this script fits
 
 Usage:
     python scripts/auto_annotate.py \
-        --input Datasets/Hotai_iRent_cars/Raw \
-        --output Datasets/Hotai_yolo_draft \
+        --input data/Hotai_iRent_cars/Raw \
+        --output data/Hotai_yolo_draft \
         --ontology scripts/ontology.yaml \
         --limit 20          # dry run on a random sample first
 """

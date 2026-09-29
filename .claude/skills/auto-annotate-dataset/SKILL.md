@@ -15,7 +15,7 @@ description: >-
 
 `train-yolov8-cardd` assumes CarDD's fixed 6-class taxonomy and already-labeled data.
 Use *this* skill instead when the images are unlabeled and the class list isn't decided
-yet — e.g. `Datasets/Hotai_iRent_cars/` (293 "Raw" + 240 "Annotated" real iRent photos;
+yet — e.g. `data/Hotai_iRent_cars/` (293 "Raw" + 240 "Annotated" real iRent photos;
 despite the folder name, **none of them actually have label files** — verified by
 searching for `.txt`/`.json`/`.xml` annotations under that tree and finding none). Once
 this skill produces a trained model with its own classes, wiring it into the API follows
@@ -26,7 +26,7 @@ the same pattern as the CarDD skill (step 8 below).
 - The API's `Detection` schema (`app/schemas/common.py`) has no mask field, so plain
   **Grounding DINO** (boxes only) is enough — no need for the heavier Grounded-SAM, which
   adds segmentation masks nothing downstream uses.
-- `Datasets/Hotai_iRent_cars/Raw/` is split into `進行索賠資料` (claim filed) and
+- `data/Hotai_iRent_cars/Raw/` is split into `進行索賠資料` (claim filed) and
   `沒有進行索賠` (no claim filed) subfolders. This is a useful free sanity check: images
   under `沒有進行索賠` that end up with detected damage boxes are the likeliest false
   positives and should be reviewed first.
@@ -40,7 +40,7 @@ the same pattern as the CarDD skill (step 8 below).
 ## Steps
 
 ### 1. Decide the category list by looking at real images
-Open a handful of images from both `Datasets/Hotai_iRent_cars/Raw/進行索賠資料` and
+Open a handful of images from both `data/Hotai_iRent_cars/Raw/進行索賠資料` and
 `.../沒有進行索賠` (and `Annotated/` if relevant) and note the damage types actually
 visible — this is the one unavoidable human judgment call (naming classes), not
 box-drawing. Don't assume CarDD's classes apply; write down whatever's actually there
@@ -63,8 +63,8 @@ PYTHONUTF8=1 pip install -r requirements-autolabel.txt
 ### 4. Dry run on a small sample first
 ```bash
 python scripts/auto_annotate.py \
-  --input Datasets/Hotai_iRent_cars/Raw \
-  --output Datasets/Hotai_yolo_draft_sample \
+  --input data/Hotai_iRent_cars/Raw \
+  --output data/Hotai_yolo_draft_sample \
   --ontology scripts/ontology.yaml \
   --limit 20
 ```
@@ -76,11 +76,11 @@ better than just "dent" — before behaving well. Re-run step 4 until satisfied.
 ### 5. Full run
 ```bash
 python scripts/auto_annotate.py \
-  --input Datasets/Hotai_iRent_cars/Raw \
-  --output Datasets/Hotai_yolo_draft \
+  --input data/Hotai_iRent_cars/Raw \
+  --output data/Hotai_yolo_draft \
   --ontology scripts/ontology.yaml
 ```
-Repeat for `Datasets/Hotai_iRent_cars/Annotated` if it should be included too (label into
+Repeat for `data/Hotai_iRent_cars/Annotated` if it should be included too (label into
 a separate output folder, or merge afterward). The script prints per-class detection
 counts and a list of zero-detection images to prioritize for review.
 
@@ -89,8 +89,8 @@ First triage locally with `scripts/validate_annotations.py`, which draws the dra
 boxes onto the images and writes a stats report — no annotation tool needed yet:
 ```bash
 python scripts/validate_annotations.py \
-  --dataset Datasets/Hotai_yolo_draft \
-  --claim-root Datasets/Hotai_iRent_cars/Raw
+  --dataset data/Hotai_yolo_draft \
+  --claim-root data/Hotai_iRent_cars/Raw
 ```
 This writes annotated overlays to `<dataset>/review/` and a `review_report.txt` listing,
 in priority order:
