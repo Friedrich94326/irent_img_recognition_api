@@ -21,9 +21,9 @@ env/
 runs/
 weights/
 
-# data — large data is not checked in (also see data/.gitignore)
-data/
-!data/.sqlite
+# data — large data is not checked in — only the SQLite DBs are tracked
+data/*
+!data/*.sqlite
 
 # Loose archives / data dumps anywhere in the tree
 *.zip
