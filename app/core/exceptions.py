@@ -48,19 +48,21 @@ class InvalidImageError(AppError):
     code = "invalid_image"
 
 
-def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    request.state.error_message = exc.message  # picked up by the API call log
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_response().model_dump(),
     )
 
 
-def _validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     first = exc.errors()[0] if exc.errors() else None
     field = None
     if first and first.get("loc"):
         field = ".".join(str(part) for part in first["loc"] if part != "body")
     message = first["msg"] if first else "Request validation failed."
+    request.state.error_message = f"{field}: {message}" if field else message
     body = ErrorResponse(
         error=ErrorDetail(code="validation_error", message=message, field=field or None)
     )

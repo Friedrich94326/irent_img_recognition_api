@@ -9,6 +9,9 @@ import os
 # ``app.main`` is imported, because that module builds the app (and caches Settings) at import.
 os.environ.setdefault("IRENT_PLATE_USE_MOCK", "true")
 os.environ.setdefault("IRENT_TIRE_USE_MOCK", "true")
+# Keep the lifespan away from the real ops database (IRENT_DB_PATH in a local .env): a missing
+# file disables both the vehicle link and the API call log.
+os.environ.setdefault("IRENT_DB_PATH", "tests/__no_ops_db__.sqlite")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -43,6 +46,8 @@ def client(evaluator: MockEvaluator) -> TestClient:
     app.dependency_overrides[get_vehicle_repository] = lambda: None
     # The lifespan still runs and sets app.state.evaluator; the override wins for requests.
     with TestClient(app) as test_client:
+        # Same for the API call log the lifespan may have attached.
+        app.state.api_call_log = None
         yield test_client
     app.dependency_overrides.clear()
 

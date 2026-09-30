@@ -1,0 +1,225 @@
+%% iRent Ops Backend - Database ER diagram
+%% Source: data/irent_op_backend.sqlite (generated 2026-09-30)
+%% Solid lines = enforced FOREIGN KEY; dotted line = logical link without FK
+erDiagram
+
+    %% ---------- Auth / RBAC ----------
+    departments {
+        int id PK
+        string name UK
+        string description
+        string created_at
+    }
+    roles {
+        int id PK
+        string name UK
+        string description
+        bool is_system
+        string created_at
+        string updated_at
+    }
+    permissions {
+        int id PK
+        string code UK
+        string module "UK(module, action)"
+        string module_label
+        string action "UK(module, action)"
+        string action_label
+    }
+    role_permissions {
+        int role_id PK, FK
+        int permission_id PK, FK
+        string created_at
+    }
+    users {
+        int id PK
+        string employee_no UK
+        string name
+        string email UK "nullable"
+        string phone "nullable"
+        string password_hash
+        int role_id FK
+        int department_id FK
+        string status "active / suspended"
+        string last_login_at "nullable"
+        string created_at
+        string updated_at
+    }
+    sessions {
+        int id PK
+        int user_id FK
+        string token_hash UK
+        string ip "nullable"
+        string user_agent "nullable"
+        string expires_at
+        string created_at
+    }
+    audit_logs {
+        int id PK
+        int actor_user_id FK "nullable"
+        string action
+        string target_type
+        string target_id "nullable"
+        string summary
+        string ip "nullable"
+        string created_at
+    }
+    inbox_items {
+        int id PK
+        int user_id FK
+        string kind "notification / message"
+        string title
+        string body
+        string href
+        string tone "danger / warning / info / success"
+        string sender "nullable"
+        bool is_read
+        string created_at
+    }
+
+    %% ---------- Fleet operations ----------
+    stations {
+        int id PK
+        string code UK
+        string name
+        string city
+        string district
+        string address
+        float latitude "nullable"
+        float longitude "nullable"
+        string station_type "station / parking"
+        string status "active / inactive"
+        string created_at
+        string updated_at
+    }
+    vehicles {
+        int id PK
+        string license_plate UK
+        string model
+        string color
+        int station_id FK
+        string status "available / cleaning / maintenance"
+        float today_mileage ">= 0"
+        string latest_anomaly "nullable"
+        string cabin_condition "clean / average / dirty"
+        string created_at
+        string updated_at
+    }
+    ai_anomaly_alerts {
+        int id PK
+        int vehicle_id FK "nullable: photo matched no vehicle"
+        string plate_number "nullable: sent / OCR plate"
+        string anomaly_type
+        int confidence "0-100"
+        string status "pending / review / resolved"
+        string detected_at
+        string created_at
+        string updated_at
+    }
+    customers {
+        int id PK
+        string member_no UK
+        string full_name
+        string phone
+        string created_at
+        string updated_at
+    }
+    rentals {
+        int id PK
+        int vehicle_id FK
+        int customer_id FK "nullable"
+        string started_at
+        string ended_at "nullable"
+        string status "active / completed / cancelled"
+        int rental_fee ">= 0"
+        string created_at
+        string updated_at
+    }
+    vehicle_service_records {
+        int id PK
+        int vehicle_id FK
+        string type "cleaning / maintenance"
+        string performed_at
+        int cost ">= 0"
+        string note
+        string created_at
+        string updated_at
+    }
+    cleaning_orders {
+        int id PK
+        string order_number UK
+        string vehicle_license_plate FK
+        string condition "dirty / average / clean"
+        string original_condition "dirty / average / clean"
+        string cleaning_provider "external_company / irent_staff"
+        string dispatch_status "unassigned / assigned"
+        int cleaning_fee
+        string note
+        string created_at
+        string updated_at
+    }
+    repair_orders {
+        int id PK
+        string order_number UK
+        string repair_center
+        string vehicle_license_plate FK
+        string maintenance_item
+        string status "待派工 / 待驗收 / 維修中 / 維修完畢"
+        int assigned_manager_id FK "nullable"
+        int estimated_cost ">= 0"
+        int actual_cost "nullable, >= 0"
+        string created_at
+        string completed_at "nullable"
+    }
+
+    %% ---------- AI labelling ----------
+    damage_annotations {
+        int id PK
+        string case_id
+        string plate_number "logical ref to vehicles.license_plate"
+        string image_side
+        string category
+        float x
+        float y
+        float width
+        float height
+        string yolo_coordinates
+        int created_by_id FK "nullable"
+        string created_at
+        string updated_at
+    }
+
+    %% ---------- API monitoring (standalone, no FK) ----------
+    api_call_logs {
+        int id PK
+        string api_name "route template, e.g. /api/v1/damage/evaluate"
+        string http_method
+        int return_code "HTTP status"
+        string return_msg "OK or error message"
+        string client "X-Client-Id header, else client IP"
+        string client_ip "nullable"
+        string user_agent "nullable"
+        float duration_ms
+        string record_time
+    }
+
+    %% ---------- Relationships ----------
+    roles        ||--o{ role_permissions : "role_id"
+    permissions  ||--o{ role_permissions : "permission_id"
+    roles        ||--o{ users : "role_id"
+    departments  ||--o{ users : "department_id"
+    users        ||--o{ sessions : "user_id"
+    users        |o--o{ audit_logs : "actor_user_id"
+    users        ||--o{ inbox_items : "user_id"
+
+    stations     ||--o{ vehicles : "station_id"
+    vehicles     |o--o{ ai_anomaly_alerts : "vehicle_id"
+    vehicles     ||--o{ rentals : "vehicle_id"
+    customers    |o--o{ rentals : "customer_id"
+    vehicles     ||--o{ vehicle_service_records : "vehicle_id"
+    vehicles     ||--o{ cleaning_orders : "license_plate"
+    vehicles     ||--o{ repair_orders : "license_plate"
+    users        |o--o{ repair_orders : "assigned_manager_id"
+
+    users        |o--o{ damage_annotations : "created_by_id"
+    vehicles     |o..o{ damage_annotations : "plate_number (logical, no FK)"

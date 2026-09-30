@@ -76,11 +76,10 @@ async def detect_tires(
         )
 
     # Read-only: tire results only identify the vehicle, they are not written to the database.
-    linked = await link_vehicle(image, plate_number, repo, recognizer, settings)
+    match = await link_vehicle(image, plate_number, repo, recognizer, settings)
     vehicle_link = None
-    if linked is not None:
-        vehicle, source = linked
-        vehicle_link = to_vehicle_link(vehicle, source)
+    if match is not None and match.vehicle is not None:
+        vehicle_link = to_vehicle_link(match.vehicle, match.source)
 
     return TireDetectionResponse(
         request_id=str(uuid.uuid4()),

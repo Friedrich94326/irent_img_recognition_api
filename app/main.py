@@ -11,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.config import Settings, get_settings
+from app.core.api_logging import register_api_logging
 from app.core.exceptions import register_exception_handlers
+from app.services.api_call_log import build_api_call_log
 from app.services.evaluator import build_evaluator
 from app.services.plate_recognizer import build_plate_recognizer
 from app.services.tire_detector import build_tire_detector
@@ -37,11 +39,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.tire_detector.is_mock,
     )
     app.state.vehicle_repository = build_vehicle_repository(settings)
+    app.state.api_call_log = build_api_call_log(settings)
     yield
     app.state.evaluator = None
     app.state.plate_recognizer = None
     app.state.tire_detector = None
     app.state.vehicle_repository = None
+    app.state.api_call_log = None
 
 
 def create_app() -> FastAPI:
@@ -62,6 +66,7 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+    register_api_logging(app)
     app.include_router(api_router)
 
     @app.get("/", include_in_schema=False)

@@ -208,6 +208,18 @@ pytest
 ruff check .
 ```
 
+### Endpoint smoke test
+
+With `IRENT_DB_PATH` set, every `/api/v1` call is logged to the `api_call_logs` table
+(`api_name`, `http_method`, `return_code`, `return_msg`, `client`, `client_ip`, `user_agent`,
+`duration_ms`, `record_time`). Send an `X-Client-Id` header to tag the caller; otherwise `client`
+is the caller's IP. To call every endpoint once and print the rows it produced:
+
+```bash
+python run.py                              # in another terminal
+python scripts/smoke_test_api.py [--image car.jpg] [--plate RAC-4582]
+```
+
 ## System Architecture
 ```mermaid
 ---

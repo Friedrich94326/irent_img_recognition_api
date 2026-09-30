@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from anyio import to_thread
 from PIL import Image
 
@@ -9,6 +11,15 @@ from app.config import Settings
 from app.schemas.vehicle import PlateSource, VehicleLink
 from app.services.plate_recognizer import PlateRecognizer, format_plate, resolve_plates
 from app.services.vehicle_repository import VehicleRecord, VehicleRepository
+
+
+@dataclass(frozen=True)
+class PlateMatch:
+    """The plate a photo was attributed to and the ``vehicles`` row it matched, if any."""
+
+    plate: str | None
+    source: PlateSource | None
+    vehicle: VehicleRecord | None
 
 
 def normalise_plate(text: str) -> str:
@@ -34,8 +45,9 @@ async def link_vehicle(
     repo: VehicleRepository | None,
     recognizer: PlateRecognizer,
     settings: Settings,
-) -> tuple[VehicleRecord, PlateSource] | None:
-    """Return the matched vehicle and where its plate came from, or ``None``.
+) -> PlateMatch | None:
+    """Return the photo's plate and matched vehicle (either may be ``None``), or ``None``
+    without a database.
 
     Without a database nothing is looked up, and OCR is skipped so requests cost no more than
     before. A plate from the client is trusted as given: OCR only runs when there is none.
@@ -49,7 +61,7 @@ async def link_vehicle(
         raws = await to_thread.run_sync(recognizer.read, image)
         _, best = resolve_plates(raws, image.size, settings.plate_min_confidence)
         if best is None:
-            return None
+            return PlateMatch(None, None, None)
         plate, source = best.plate_number, PlateSource.OCR
     vehicle = await to_thread.run_sync(repo.find_vehicle, plate)
-    return (vehicle, source) if vehicle else None
+    return PlateMatch(plate, source, vehicle)

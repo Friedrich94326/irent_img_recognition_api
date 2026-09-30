@@ -58,6 +58,38 @@ class DamageRecordResult:
     annotation_ids: list[int]
     alert_id: int
     anomaly_text: str
+    vehicle_id: int | None
+    plate_number: str | None
+
+
+# Rebuild of ``ai_anomaly_alerts`` that lets alerts exist for photos matching no vehicle:
+# ``vehicle_id`` becomes nullable and the plate that was sent / read is kept in ``plate_number``.
+_ALERTS_MIGRATION = """
+CREATE TABLE "ai_anomaly_alerts_new" (
+  "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  "vehicle_id" INTEGER,
+  "plate_number" TEXT,
+  "anomaly_type" TEXT NOT NULL,
+  "confidence" INTEGER NOT NULL CHECK ("confidence" BETWEEN 0 AND 100),
+  "status" TEXT NOT NULL DEFAULT 'pending' CHECK ("status" IN ('pending', 'review', 'resolved')),
+  "detected_at" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "created_at" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ai_anomaly_alerts_vehicle_id_fkey"
+    FOREIGN KEY ("vehicle_id") REFERENCES "vehicles" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+INSERT INTO "ai_anomaly_alerts_new" ("id", "vehicle_id", "plate_number", "anomaly_type",
+  "confidence", "status", "detected_at", "created_at", "updated_at")
+  SELECT a."id", a."vehicle_id", v."license_plate", a."anomaly_type", a."confidence",
+    a."status", a."detected_at", a."created_at", a."updated_at"
+  FROM "ai_anomaly_alerts" a LEFT JOIN "vehicles" v ON v."id" = a."vehicle_id";
+DROP TABLE "ai_anomaly_alerts";
+ALTER TABLE "ai_anomaly_alerts_new" RENAME TO "ai_anomaly_alerts";
+CREATE INDEX "ai_anomaly_alerts_vehicle_id_status_detected_at_idx"
+  ON "ai_anomaly_alerts"("vehicle_id", "status", "detected_at");
+CREATE INDEX "ai_anomaly_alerts_plate_number_detected_at_idx"
+  ON "ai_anomaly_alerts"("plate_number", "detected_at");
+"""
 
 
 def anomaly_text(side: ImageSide, detections: list[Detection]) -> str:
@@ -90,6 +122,22 @@ class VehicleRepository:
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
+    def ensure_schema(self) -> None:
+        """Apply :data:`_ALERTS_MIGRATION` once; a no-op when ``plate_number`` already exists."""
+
+        conn = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
+        try:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_anomaly_alerts)")}
+            if "plate_number" in columns:
+                return
+            # foreign_keys must be toggled outside a transaction; the swap itself is atomic.
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.executescript(f"BEGIN;{_ALERTS_MIGRATION}COMMIT;")
+            conn.execute("PRAGMA foreign_keys = ON")
+            logger.info("Migrated ai_anomaly_alerts: nullable vehicle_id, new plate_number.")
+        finally:
+            conn.close()
+
     def find_vehicle(self, license_plate: str) -> VehicleRecord | None:
         conn = self._connect()
         try:
@@ -104,20 +152,27 @@ class VehicleRepository:
 
     def record_damage(
         self,
-        vehicle: VehicleRecord,
+        vehicle: VehicleRecord | None,
+        plate: str | None,
         case_id: str,
         side: ImageSide,
         detections: list[Detection],
         image_size: tuple[int, int],
     ) -> DamageRecordResult:
-        """Write one annotation per detection, one pending alert, and the vehicle's latest
-        anomaly, all in a single transaction. ``detections`` must not be empty."""
+        """Write one annotation per detection, one pending alert, and - when the photo matched a
+        vehicle - its latest anomaly, all in a single transaction.
+
+        Without a matched ``vehicle`` the alert has no ``vehicle_id`` and keeps ``plate`` (the
+        plate sent or read, possibly ``None``). ``detections`` must not be empty.
+        """
 
         if not detections:
             raise ValueError("record_damage needs at least one detection")
         width, height = image_size
         text = anomaly_text(side, detections)
         confidence = round(max(d.confidence for d in detections) * 100)
+        vehicle_id = vehicle.id if vehicle else None
+        plate_number = vehicle.license_plate if vehicle else plate
 
         conn = self._connect()
         try:
@@ -129,7 +184,7 @@ class VehicleRepository:
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             case_id,
-                            vehicle.license_plate,
+                            plate_number or "",  # NOT NULL column: '' when no plate was found
                             side.value,
                             det.damage_class.value,
                             det.bounding_box.x1,
@@ -142,18 +197,19 @@ class VehicleRepository:
                     for det in detections
                 ]
                 alert_id = conn.execute(
-                    "INSERT INTO ai_anomaly_alerts (vehicle_id, anomaly_type, confidence) "
-                    "VALUES (?, ?, ?)",
-                    (vehicle.id, text, confidence),
+                    "INSERT INTO ai_anomaly_alerts (vehicle_id, plate_number, anomaly_type, "
+                    "confidence) VALUES (?, ?, ?, ?)",
+                    (vehicle_id, plate_number, text, confidence),
                 ).lastrowid
-                conn.execute(
-                    "UPDATE vehicles SET latest_anomaly = ?, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = ?",
-                    (text, vehicle.id),
-                )
+                if vehicle_id is not None:
+                    conn.execute(
+                        "UPDATE vehicles SET latest_anomaly = ?, updated_at = CURRENT_TIMESTAMP "
+                        "WHERE id = ?",
+                        (text, vehicle_id),
+                    )
         finally:
             conn.close()
-        return DamageRecordResult(annotation_ids, alert_id, text)
+        return DamageRecordResult(annotation_ids, alert_id, text, vehicle_id, plate_number)
 
 
 def build_vehicle_repository(settings: Settings) -> VehicleRepository | None:
@@ -164,4 +220,6 @@ def build_vehicle_repository(settings: Settings) -> VehicleRepository | None:
     if not path.exists():
         logger.warning("iRent ops database not found at %s - results are not linked.", path)
         return None
-    return VehicleRepository(path)
+    repo = VehicleRepository(path)
+    repo.ensure_schema()
+    return repo

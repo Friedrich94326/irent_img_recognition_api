@@ -67,19 +67,27 @@ async def evaluate_damage(
 
     vehicle_link = None
     db_record = None
-    linked = await link_vehicle(image, plate_number, repo, recognizer, settings)
-    if linked is not None:
-        vehicle, source = linked
-        vehicle_link = to_vehicle_link(vehicle, source)
+    match = await link_vehicle(image, plate_number, repo, recognizer, settings)
+    if match is not None:  # a database is configured
+        if match.vehicle is not None:
+            vehicle_link = to_vehicle_link(match.vehicle, match.source)
         if detections:
             result = await to_thread.run_sync(
-                repo.record_damage, vehicle, request_id, image_side, detections, image.size
+                repo.record_damage,
+                match.vehicle,
+                match.plate,
+                request_id,
+                image_side,
+                detections,
+                image.size,
             )
             db_record = DamageRecord(
                 case_id=request_id,
                 annotation_ids=result.annotation_ids,
                 alert_id=result.alert_id,
                 anomaly_text=result.anomaly_text,
+                vehicle_id=result.vehicle_id,
+                plate_number=result.plate_number,
             )
 
     return DamageEvaluationResponse(

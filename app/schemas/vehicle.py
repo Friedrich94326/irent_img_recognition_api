@@ -43,5 +43,13 @@ class DamageRecord(BaseModel):
     annotation_ids: list[int] = Field(description="New damage_annotations row ids.")
     alert_id: int = Field(description="New ai_anomaly_alerts row id (status 'pending').")
     anomaly_text: str = Field(
-        description="Text stored as the alert's anomaly_type and the vehicle's latest_anomaly."
+        description="Text stored as the alert's anomaly_type and, when a vehicle matched, the "
+        "vehicle's latest_anomaly."
+    )
+    vehicle_id: int | None = Field(
+        description="ai_anomaly_alerts.vehicle_id; null when the photo matched no vehicle."
+    )
+    plate_number: str | None = Field(
+        description="ai_anomaly_alerts.plate_number: the matched, sent or OCR-read plate; null "
+        "when none was found."
     )
