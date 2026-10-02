@@ -14,9 +14,12 @@ from app.config import Settings, get_settings
 from app.core.api_logging import register_api_logging
 from app.core.exceptions import register_exception_handlers
 from app.services.api_call_log import build_api_call_log
+from app.services.corner_classifier import build_corner_classifier
 from app.services.evaluator import build_evaluator
 from app.services.plate_recognizer import build_plate_recognizer
+from app.services.precheck import build_precheck_repository
 from app.services.tire_detector import build_tire_detector
+from app.services.vehicle_photos import build_vehicle_photo_repository
 from app.services.vehicle_repository import build_vehicle_repository
 
 logging.basicConfig(level=logging.INFO)
@@ -38,14 +41,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.tire_detector.name,
         app.state.tire_detector.is_mock,
     )
+    app.state.corner_classifier = build_corner_classifier(settings)
     app.state.vehicle_repository = build_vehicle_repository(settings)
     app.state.api_call_log = build_api_call_log(settings)
+    app.state.vehicle_photo_repository = build_vehicle_photo_repository(settings)
+    app.state.precheck_repository = build_precheck_repository(settings)
     yield
     app.state.evaluator = None
     app.state.plate_recognizer = None
     app.state.tire_detector = None
+    app.state.corner_classifier = None
     app.state.vehicle_repository = None
     app.state.api_call_log = None
+    app.state.precheck_repository = None
+    app.state.vehicle_photo_repository = None
 
 
 def create_app() -> FastAPI:

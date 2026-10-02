@@ -12,15 +12,20 @@ os.environ.setdefault("IRENT_TIRE_USE_MOCK", "true")
 # Keep the lifespan away from the real ops database (IRENT_DB_PATH in a local .env): a missing
 # file disables both the vehicle link and the API call log.
 os.environ.setdefault("IRENT_DB_PATH", "tests/__no_ops_db__.sqlite")
+# Likewise never load a corner classifier configured for dev use; missing weights = no check.
+os.environ.setdefault("IRENT_CORNER_WEIGHTS_PATH", "tests/__no_corner_model__.pt")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from app.api.deps import (  # noqa: E402
+    get_corner_classifier,
     get_evaluator,
+    get_precheck_repository,
     get_settings,
     get_tire_detector,
+    get_vehicle_photo_repository,
     get_vehicle_repository,
 )
 from app.config import Settings  # noqa: E402
@@ -39,11 +44,14 @@ def client(evaluator: MockEvaluator) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_evaluator] = lambda: evaluator
     app.dependency_overrides[get_tire_detector] = MockTireDetector
+    app.dependency_overrides[get_corner_classifier] = lambda: None
     # Isolate from any local .env (e.g. real YOLO weights configured for dev use)
     # so tests reflect the mocked detector regardless of host machine config.
     app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
     # Never touch the real ops database (IRENT_DB_PATH in a local .env) from tests.
     app.dependency_overrides[get_vehicle_repository] = lambda: None
+    app.dependency_overrides[get_precheck_repository] = lambda: None
+    app.dependency_overrides[get_vehicle_photo_repository] = lambda: None
     # The lifespan still runs and sets app.state.evaluator; the override wins for requests.
     with TestClient(app) as test_client:
         # Same for the API call log the lifespan may have attached.

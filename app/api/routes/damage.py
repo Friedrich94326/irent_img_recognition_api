@@ -49,15 +49,26 @@ async def evaluate_damage(
     image_side: ImageSide = Form(
         default=ImageSide.UNKNOWN, description="Which side of the vehicle the photo shows."
     ),
+    confidence_threshold: float | None = Form(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Drop detections below this confidence (0-1). Default: the server's "
+        "IRENT_YOLO_CONFIDENCE_THRESHOLD.",
+    ),
     evaluator: DamageEvaluator = Depends(get_evaluator),
     recognizer: PlateRecognizer = Depends(get_plate_recognizer),
     repo: VehicleRepository | None = Depends(get_vehicle_repository),
     settings: Settings = Depends(get_settings),
 ) -> DamageEvaluationResponse:
     image, metadata = await load_upload(file, settings)
+    threshold = (
+        settings.yolo_confidence_threshold if confidence_threshold is None
+        else confidence_threshold
+    )
 
     started = time.perf_counter()
-    raw = await to_thread.run_sync(evaluator.predict, image)
+    raw = await to_thread.run_sync(evaluator.predict, image, threshold)
     inference_ms = (time.perf_counter() - started) * 1000.0
 
     detections = enrich(raw)
@@ -100,6 +111,7 @@ async def evaluate_damage(
         model_version=evaluator.version,
         is_mock=evaluator.is_mock,
         inference_ms=round(inference_ms, 3),
+        confidence_threshold=threshold,
         vehicle=vehicle_link,
         db_record=db_record,
     )

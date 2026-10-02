@@ -42,8 +42,14 @@ class DamageEvaluator(ABC):
     is_mock: bool = False
 
     @abstractmethod
-    def predict(self, image: Image.Image) -> list[RawDetection]:
-        """Return detections for a single RGB image."""
+    def predict(
+        self, image: Image.Image, min_confidence: float | None = None
+    ) -> list[RawDetection]:
+        """Return detections for a single RGB image.
+
+        ``min_confidence`` overrides the configured threshold for this call (a client-chosen
+        threshold); ``None`` keeps the detector's default.
+        """
 
 
 class MockEvaluator(DamageEvaluator):
@@ -67,7 +73,9 @@ class MockEvaluator(DamageEvaluator):
     def __init__(self, version: str = "0.1.0") -> None:
         self.version = version
 
-    def predict(self, image: Image.Image) -> list[RawDetection]:
+    def predict(
+        self, image: Image.Image, min_confidence: float | None = None
+    ) -> list[RawDetection]:
         width, height = image.size
         digest = hashlib.sha256(image.tobytes()).digest()
         seed = int.from_bytes(digest[:8], "big")
@@ -90,6 +98,8 @@ class MockEvaluator(DamageEvaluator):
                     xyxy=(float(x1), float(y1), float(x1 + bw), float(y1 + bh)),
                 )
             )
+        if min_confidence is not None:
+            detections = [d for d in detections if d.confidence >= min_confidence]
         return detections
 
 
@@ -132,10 +142,12 @@ class YOLOv8Evaluator(DamageEvaluator):
                 ", ".join(sorted(set(unknown))),
             )
 
-    def predict(self, image: Image.Image) -> list[RawDetection]:
+    def predict(
+        self, image: Image.Image, min_confidence: float | None = None
+    ) -> list[RawDetection]:
         results = self._model.predict(
             source=image,
-            conf=self._conf,
+            conf=self._conf if min_confidence is None else min_confidence,
             iou=self._iou,
             device=self._device,
             verbose=False,

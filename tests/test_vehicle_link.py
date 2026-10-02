@@ -42,7 +42,9 @@ class FixedEvaluator(DamageEvaluator):
     def __init__(self, detections: list[RawDetection]) -> None:
         self.detections = detections
 
-    def predict(self, image: Image.Image) -> list[RawDetection]:
+    def predict(
+        self, image: Image.Image, min_confidence: float | None = None
+    ) -> list[RawDetection]:
         return self.detections
 
 
@@ -236,6 +238,7 @@ def test_alerts_migration_keeps_rows_and_is_idempotent(tmp_path: Path) -> None:
 
 def test_no_damage_links_vehicle_but_writes_nothing(db: Path, sample_jpeg: bytes) -> None:
     latest_before = rows(db, "SELECT latest_anomaly FROM vehicles WHERE id = 1")
+    annotations_before = rows(db, "SELECT COUNT(*) FROM damage_annotations")
     client, _ = make_client(db, detections=[])
     with client:
         body = client.post(
@@ -245,7 +248,7 @@ def test_no_damage_links_vehicle_but_writes_nothing(db: Path, sample_jpeg: bytes
         ).json()
     assert body["vehicle"]["id"] == 1
     assert body["db_record"] is None
-    assert rows(db, "SELECT COUNT(*) FROM damage_annotations") == [(0,)]
+    assert rows(db, "SELECT COUNT(*) FROM damage_annotations") == annotations_before
     assert rows(db, "SELECT latest_anomaly FROM vehicles WHERE id = 1") == latest_before
 
 
@@ -259,6 +262,7 @@ def test_without_database_nothing_is_looked_up(sample_jpeg: bytes) -> None:
 
 
 def test_tire_links_vehicle_read_only(db: Path, sample_jpeg: bytes) -> None:
+    annotations_before = rows(db, "SELECT COUNT(*) FROM damage_annotations")
     client, _ = make_client(db)
     with client:
         body = client.post(
@@ -267,4 +271,4 @@ def test_tire_links_vehicle_read_only(db: Path, sample_jpeg: bytes) -> None:
             data={"plate_number": KNOWN_PLATE},
         ).json()
     assert body["vehicle"]["license_plate"] == KNOWN_PLATE
-    assert rows(db, "SELECT COUNT(*) FROM damage_annotations") == [(0,)]
+    assert rows(db, "SELECT COUNT(*) FROM damage_annotations") == annotations_before

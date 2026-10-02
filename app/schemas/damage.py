@@ -87,6 +87,7 @@ class DamageEvaluationResponse(BaseModel):
                 "model_version": "0.1.0",
                 "is_mock": True,
                 "inference_ms": 3.4,
+                "confidence_threshold": 0.7,
             }
         }
     )
@@ -100,6 +101,9 @@ class DamageEvaluationResponse(BaseModel):
     model_version: str
     is_mock: bool = Field(description="True when results came from the built-in mock detector.")
     inference_ms: float = Field(ge=0.0, description="Wall-clock inference time in milliseconds.")
+    confidence_threshold: float = Field(
+        ge=0.0, le=1.0, description="Detections below this confidence were dropped."
+    )
     vehicle: VehicleLink | None = Field(
         default=None,
         description="Matched vehicles row, or null (no database, no plate, or plate not "

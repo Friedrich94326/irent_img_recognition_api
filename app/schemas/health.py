@@ -44,3 +44,7 @@ class HealthResponse(BaseModel):
     weights_path: str | None = Field(
         default=None, description="Configured YOLOv8 weights path, if any."
     )
+    confidence_threshold: float | None = Field(
+        default=None,
+        description="Default damage confidence threshold (IRENT_YOLO_CONFIDENCE_THRESHOLD).",
+    )

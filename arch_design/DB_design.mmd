@@ -189,6 +189,39 @@ erDiagram
         string updated_at
     }
 
+    %% ---------- Driver pre-rental check ----------
+    rental_prechecks {
+        int id PK
+        string case_id UK "quoted to support"
+        int vehicle_id FK
+        int customer_id FK "nullable"
+        string verdict "ok / warning / blocked"
+        string reasons "JSON [{code, level, message}]"
+        int photo_count
+        int damage_count
+        string overall_severity "none / minor / moderate / severe"
+        string photo_ids "JSON ids of the vehicle_photos shown"
+        string created_at
+    }
+    vehicle_photos {
+        int id PK
+        int vehicle_id FK
+        string corner "front_left / front_right / rear_left / rear_right"
+        string source "return / pickup / station"
+        string file_path UK "relative to IRENT_VEHICLE_PHOTO_DIR"
+        int width
+        int height
+        string detections "JSON, computed at upload"
+        int damage_count
+        string overall_severity
+        string model_name
+        string predicted_corner "nullable; corner classifier's view"
+        float corner_confidence "nullable"
+        int corner_mismatch "0/1; confident disagreement with corner"
+        string captured_at
+        string created_at
+    }
+
     %% ---------- API monitoring (standalone, no FK) ----------
     api_call_logs {
         int id PK
@@ -222,4 +255,8 @@ erDiagram
     users        |o--o{ repair_orders : "assigned_manager_id"
 
     users        |o--o{ damage_annotations : "created_by_id"
+    vehicles     ||--o{ rental_prechecks : "vehicle_id"
+    customers    |o--o{ rental_prechecks : "customer_id"
+    vehicles     ||--o{ vehicle_photos : "vehicle_id"
+    rental_prechecks }o..o{ vehicle_photos : "photo_ids (logical, JSON)"
     vehicles     |o..o{ damage_annotations : "plate_number (logical, no FK)"

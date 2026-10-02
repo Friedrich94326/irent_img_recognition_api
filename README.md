@@ -48,6 +48,10 @@ for.
 | GET    | `/api/v1/health`           | Service status + which detector is loaded |
 | POST   | `/api/v1/damage/evaluate`  | `multipart/form-data` with one image `file` |
 | POST   | `/api/v1/plate/recognize`  | `multipart/form-data` with one image `file`; returns the license plate (`ABC-1234`) |
+| POST   | `/api/v1/rental/precheck`  | Online pre-rental check. JSON `{"plate_number", "member_no"?}`; returns `ok` / `warning` / `blocked` with reasons plus the car's current 4 corner photos |
+| POST   | `/api/v1/vehicles/{plate}/photos` | Station camera / return app uploads a corner photo (`corner`, `file`, optional `source`, `captured_at`) |
+| GET    | `/api/v1/vehicles`         | Vehicles with how many corners have a current photo |
+| GET    | `/api/v1/vehicle-photos/{id}/image` | The stored JPEG of a corner photo |
 | GET    | `/docs`                    | Swagger UI                               |
 
 ### `POST /api/v1/damage/evaluate`
@@ -74,6 +78,35 @@ Response `200` (`DamageEvaluationResponse`):
 
 Errors use one envelope: `{ "error": { "code", "message", "field" } }` — `415`
 unsupported type, `413` too large, `422` unreadable image / missing file.
+
+### `POST /api/v1/rental/precheck`
+
+A customer checks a car's condition online **before booking**. Nothing is uploaded: the car's current photo of each corner (左前 / 右前 / 左後 / 右後) comes from the photo store. Needs `IRENT_DB_PATH` (503 otherwise).
+
+- **Photos.** The API returns, for each corner, the latest photo with the damage found when it was uploaded. A corner with no photo is listed in `missing_corners`.
+- **Blocks the rental:** `vehicles.status` is maintenance or cleaning, the car is in an active rental, or the photos show severe damage.
+- **Warnings:** an open repair order, unresolved `ai_anomaly_alerts`, a dirty cabin, any other damage in the photos, or a missing corner (`photos_missing`).
+- **What gets saved.** Every pre-check is saved to `rental_prechecks`, with `photo_ids` recording exactly which photos the customer was shown.
+- **Errors.** An unknown plate or member number returns 404.
+
+```bash
+curl -H "Content-Type: application/json" -d '{"plate_number": "RCG-2235", "member_no": "MEM0001"}'   http://127.0.0.1:8000/api/v1/rental/precheck
+```
+
+### Corner photo store
+
+Station cameras, or the return inspection app, push photos with `POST /api/v1/vehicles/{plate}/photos` (multipart: `corner` = `front_left|front_right|rear_left|rear_right`, `file`, optional `source` = `return|pickup|station`, and `captured_at`).
+
+- **Detection runs once, at upload.** The result is stored in `vehicle_photos`, so a pre-check runs no inference.
+- **Photos are stored upright.** Files go to `IRENT_VEHICLE_PHOTO_DIR` (default `data/vehicle_photos`, not in git), exactly as the customer should see them. Portrait photos are rotated to landscape for the detector only, and the boxes are mapped back.
+- **No auth.** The upload endpoint has no authentication (hackathon scope). Put it behind the station network or add a token before real use.
+
+To load the real Hotai iRent photos (the latest return photo of each corner, for every car with all four corners; this also registers those cars in `vehicles`):
+
+```bash
+python scripts/import_hotai_photos.py --dry-run   # show what would be imported
+python scripts/import_hotai_photos.py             # safe to re-run
+```
 
 ### `POST /api/v1/plate/recognize`
 
@@ -120,6 +153,15 @@ folder with `python -m http.server 5500`, picking a port other than 8000 since t
 already uses that one) with the API running — it defaults to
 `http://127.0.0.1:8000` but the base URL is editable in the page.
 
+The **Pre-rental check** tab is the customer's online flow for `POST /api/v1/rental/precheck`:
+- Pick or type a plate (the list comes from `GET /api/v1/vehicles`), optionally add a member number, and click **Check car**.
+- The page shows the car's four current corner photos with the damage boxes drawn over them (tap to enlarge), next to the verdict (ready to rent / rent with care / do not rent), the reasons, and the car's status and known issues.
+- Nothing is uploaded from the page.
+
+It needs the API running with `IRENT_DB_PATH` set.
+
+It needs the API running with `IRENT_DB_PATH` set.
+
 `web/review.html` is a separate, offline viewer for auto-annotated datasets (see
 `.claude/skills/auto-annotate-dataset` and `scripts/validate_annotations.py`) — no API or
 server required. Open it directly in a browser, click "Choose dataset folder…" and pick a
@@ -141,7 +183,8 @@ warning and falls back to the mock detector. The model's class labels are matche
 case-insensitively against `DamageClass` in `app/schemas/common.py` — update that enum to
 match your trained model's `names`.
 
-Config is via `IRENT_`-prefixed env vars: `IRENT_YOLO_CONFIDENCE_THRESHOLD`,
+Config is via `IRENT_`-prefixed env vars: `IRENT_YOLO_CONFIDENCE_THRESHOLD` (default 0.70;
+damage below it is dropped as a likely false positive),
 `IRENT_YOLO_IOU_THRESHOLD`, `IRENT_YOLO_DEVICE`, `IRENT_PLATE_DEVICE` (EasyOCR device; defaults to the YOLO one), `IRENT_MAX_IMAGE_BYTES`,
 `IRENT_ALLOWED_CONTENT_TYPES`, `IRENT_CORS_ALLOW_ORIGINS`.
 

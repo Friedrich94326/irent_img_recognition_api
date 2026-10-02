@@ -3,9 +3,12 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_evaluator
 from app.api.deps import get_settings as get_settings_dep
 from app.config import Settings, get_settings
+from app.schemas.common import DamageClass
 from app.schemas.damage import DamageEvaluationResponse
+from app.services.evaluator import MockEvaluator, RawDetection
 
 ENDPOINT = "/api/v1/damage/evaluate"
 
@@ -68,3 +71,48 @@ def test_evaluate_rejects_oversized_image(client: TestClient, sample_jpeg: bytes
 
     assert resp.status_code == 413
     assert resp.json()["error"]["code"] == "payload_too_large"
+
+
+class _FixedConfidences(MockEvaluator):
+    """Mock detector that reports one box per given confidence."""
+
+    def __init__(self, confidences: list[float]) -> None:
+        super().__init__(version="test")
+        self.confidences = confidences
+
+    def predict(self, image, min_confidence=None):
+        raws = [RawDetection(DamageClass.GLASS_SHATTER, c, (10.0, 10.0, 60.0, 60.0))
+                for c in self.confidences]
+        return [r for r in raws if min_confidence is None or r.confidence >= min_confidence]
+
+
+@pytest.mark.parametrize(
+    ("form", "kept", "used"),
+    [({}, [0.9], 0.70),  # server default
+     ({"confidence_threshold": "0.2"}, [0.9, 0.26], 0.2),
+     ({"confidence_threshold": "0.95"}, [], 0.95)],
+    ids=["default", "lower", "higher"],
+)
+def test_threshold_is_controllable_per_request(
+    client: TestClient, sample_jpeg: bytes, form: dict, kept: list[float], used: float
+) -> None:
+    client.app.dependency_overrides[get_evaluator] = lambda: _FixedConfidences([0.9, 0.26])
+    resp = client.post(ENDPOINT, data=form, files={"file": ("car.jpg", sample_jpeg, "image/jpeg")})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [d["confidence"] for d in body["detections"]] == kept
+    assert body["confidence_threshold"] == used
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1.5", "high"])
+def test_bad_threshold_is_422(client: TestClient, sample_jpeg: bytes, value: str) -> None:
+    resp = client.post(
+        ENDPOINT,
+        data={"confidence_threshold": value},
+        files={"file": ("car.jpg", sample_jpeg, "image/jpeg")},
+    )
+    assert resp.status_code == 422
+
+
+def test_health_reports_default_threshold(client: TestClient) -> None:
+    assert client.get("/api/v1/health").json()["confidence_threshold"] == 0.70

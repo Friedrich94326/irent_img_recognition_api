@@ -18,6 +18,18 @@ from app.schemas.common import ImageMetadata
 _CHUNK_SIZE = 64 * 1024
 
 
+def orient_landscape(image: Image.Image) -> Image.Image:
+    """Rotate a still-portrait (already EXIF-corrected) photo into landscape.
+
+    Car condition photos are mostly shot with the phone held upright, but the detector expects the
+    car lying horizontal (see ``orient_horizontal`` in ``scripts/hotai_common.py``).
+    """
+
+    if image.height > image.width:
+        return image.transpose(Image.Transpose.ROTATE_90)
+    return image
+
+
 async def load_upload(
     file: UploadFile, settings: Settings
 ) -> tuple[Image.Image, ImageMetadata]:

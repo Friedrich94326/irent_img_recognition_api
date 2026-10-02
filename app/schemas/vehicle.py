@@ -17,6 +17,31 @@ class ImageSide(str, Enum):
     UNKNOWN = "unknown"
 
 
+class Corner(str, Enum):
+    """Corner of the car a condition photo shows (``vehicle_photos.corner``)."""
+
+    FRONT_LEFT = "front_left"  # 左前
+    FRONT_RIGHT = "front_right"  # 右前
+    REAR_LEFT = "rear_left"  # 左後
+    REAR_RIGHT = "rear_right"  # 右後
+
+
+CORNER_LABELS_ZH: dict[Corner, str] = {
+    Corner.FRONT_LEFT: "左前",
+    Corner.FRONT_RIGHT: "右前",
+    Corner.REAR_LEFT: "左後",
+    Corner.REAR_RIGHT: "右後",
+}
+
+
+class PhotoSource(str, Enum):
+    """Who took a condition photo (``vehicle_photos.source``)."""
+
+    RETURN = "return"  # the previous renter's return inspection (還)
+    PICKUP = "pickup"  # a renter's pickup inspection (借)
+    STATION = "station"  # a station camera or staff
+
+
 class PlateSource(str, Enum):
     REQUEST = "request"
     OCR = "ocr"

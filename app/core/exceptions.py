@@ -48,6 +48,16 @@ class InvalidImageError(AppError):
     code = "invalid_image"
 
 
+class NotFoundError(AppError):
+    status_code = 404
+    code = "not_found"
+
+
+class ServiceUnavailableError(AppError):
+    status_code = 503
+    code = "service_unavailable"
+
+
 def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     request.state.error_message = exc.message  # picked up by the API call log
     return JSONResponse(

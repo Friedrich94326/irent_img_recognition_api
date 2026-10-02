@@ -32,4 +32,5 @@ def health(
         tire_model_name=tire_detector.name,
         tire_is_mock=tire_detector.is_mock,
         weights_path=str(settings.yolo_weights_path) if settings.yolo_weights_path else None,
+        confidence_threshold=settings.yolo_confidence_threshold,
     )

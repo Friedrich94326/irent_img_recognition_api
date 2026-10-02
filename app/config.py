@@ -35,7 +35,13 @@ class Settings(BaseSettings):
         default=None,
         description="Path to a YOLOv8 .pt file. If unset or missing, a mock detector is used.",
     )
-    yolo_confidence_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
+    yolo_confidence_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="Damage detections below this confidence are dropped. Lower values let "
+        "through false positives such as reflections on normal glass read as glass_shatter.",
+    )
     yolo_iou_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     yolo_device: str = "cpu"
 
@@ -78,6 +84,20 @@ class Settings(BaseSettings):
         default=None, description="Device for the tire model. Unset: follow IRENT_YOLO_DEVICE."
     )
 
+    # --- Corner classifier -------------------------------------------------
+    corner_weights_path: Path | None = Field(
+        default=None,
+        description="YOLO classify .pt that tells which corner a condition photo shows "
+        "(scripts/train_corner_classifier.py). Unset or missing: corners are not checked.",
+    )
+    corner_min_confidence: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="A photo is flagged only when the classifier disagrees with its labelled "
+        "corner at least this confidently.",
+    )
+
     # --- iRent ops database -----------------------------------------------
     db_path: Path | None = Field(
         default=None,
@@ -85,6 +105,11 @@ class Settings(BaseSettings):
         "When set, results are linked to `vehicles` by plate and damage findings are written to "
         "`damage_annotations`, `ai_anomaly_alerts` and `vehicles.latest_anomaly`. Unset or "
         "missing: no DB access.",
+    )
+
+    vehicle_photo_dir: Path = Field(
+        default=Path("data/vehicle_photos"),
+        description="Where corner condition photos (vehicle_photos.file_path) are stored.",
     )
 
     # --- Upload constraints ----------------------------------------------
