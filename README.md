@@ -47,6 +47,7 @@ for.
 | ------ | -------------------------- | ---------------------------------------- |
 | GET    | `/api/v1/health`           | Service status + which detector is loaded |
 | POST   | `/api/v1/damage/evaluate`  | `multipart/form-data` with one image `file` |
+| POST   | `/api/v1/fee/estimate`     | `multipart/form-data` with one image `file`; damage sized against the tire in the photo, damaged area (union), impacts and an estimated repair fee in NT$ |
 | POST   | `/api/v1/plate/recognize`  | `multipart/form-data` with one image `file`; returns the license plate (`ABC-1234`) |
 | POST   | `/api/v1/rental/precheck`  | Online pre-rental check. JSON `{"plate_number", "member_no"?}`; returns `ok` / `warning` / `blocked` with reasons plus the car's current 4 corner photos |
 | POST   | `/api/v1/vehicles/{plate}/photos` | Station camera / return app uploads a corner photo (`corner`, `file`, optional `source`, `captured_at`) |
@@ -78,6 +79,26 @@ Response `200` (`DamageEvaluationResponse`):
 
 Errors use one envelope: `{ "error": { "code", "message", "field" } }` — `415`
 unsupported type, `413` too large, `422` unreadable image / missing file.
+
+### `POST /api/v1/fee/estimate`
+
+Request: `multipart/form-data`: `file`, optional `plate_number` (else taken from the file name,
+e.g. `RDX-2376.jpg`) and `confidence_threshold`. Read-only: nothing is written to the database.
+
+- The damage model and the tire model both run on the photo. A tire (~63 cm,
+  `IRENT_TYRE_DIAMETER_CM`) is the ruler: each damage gets `tire_share` (its box as a share of
+  the nearest tire's area), `area_cm2` and a `size_band` (small < 5 %, large > 25 %) that moves
+  its severity one level down or up.
+- `damaged_area` merges the body-damage boxes so overlaps count once (`union_share`), next to
+  the plain sum. Flat tires are left out, because their box is the wheel itself.
+- `impacts` flags touching damage that looks like a collision (deformation next to a broken
+  part, 3+ damages of 2+ kinds in one spot, or more than a tire's area). Any impact makes
+  `overall_severity` severe.
+- `estimated_fee` comes from the XGBoost model `weights/repair_fee_xgb.json`
+  (`scripts/repair_fee_model.py`, `IRENT_FEE_MODEL_PATH`; needs `requirements-fee.txt`). It is
+  rounded to NT$100, is 0 without damage, and is `null` when the model can't be loaded. The
+  model is trained on simulated repair history for now.
+- Without a tire in view, sizes are `null` and the fee rests on damage types only.
 
 ### `POST /api/v1/rental/precheck`
 
@@ -160,7 +181,10 @@ The **Pre-rental check** tab is the customer's online flow for `POST /api/v1/ren
 
 It needs the API running with `IRENT_DB_PATH` set.
 
-It needs the API running with `IRENT_DB_PATH` set.
+The **Repair fee** tab calls `POST /api/v1/fee/estimate`. Drop a photo that shows the damage and
+a tire, and click **Estimate repair fee**. The photo shows the damage boxes (coloured by
+severity), the tire used as the ruler, and any impact as a dashed box. Next to it are the fee,
+the overall severity, the damaged area as a share of a tire, and each damage's size.
 
 `web/review.html` is a separate, offline viewer for auto-annotated datasets (see
 `.claude/skills/auto-annotate-dataset` and `scripts/validate_annotations.py`) — no API or

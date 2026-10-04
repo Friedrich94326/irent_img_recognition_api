@@ -3,7 +3,7 @@
 
 Continues training from an existing checkpoint (default: weights/car_damage.pt) using a
 low learning rate, on the dataset produced by prepare_hotai_finetune_dataset.py. Adding
-the missing_part class (not present in CarDD) means Ultralytics reinitializes the
+the missing_part and parts_broken classes (not present in CarDD) means Ultralytics reinitializes the
 detection head - the backbone/neck weights still transfer, only the head starts fresh.
 
 Writes the resulting weights to a new file (default: weights/car_damage_hotai.pt) rather

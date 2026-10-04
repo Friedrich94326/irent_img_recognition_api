@@ -302,6 +302,19 @@
   .gallery-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 18px 0 10px; }
   .gallery-head h2 { margin: 0; }
   .gallery-head .dim { font-size: 12px; color: var(--text-dim); }
+
+  /* --- Repair fee ----------------------------------------------------------- */
+  .fee-total { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .fee-total .amount { font-size: 34px; font-weight: 800; font-family: var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .fee-total .unit { font-size: 13px; color: var(--text-dim); }
+  .fee-note { font-size: 12px; color: var(--text-dim); margin: 0 0 12px; }
+  .impact-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .impact-list li { padding: 7px 10px; border-radius: 6px; color: var(--sev-severe); background: var(--sev-severe-bg); }
+  .impact-list b { text-transform: capitalize; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-dim); margin-top: 10px; }
+  .legend .key { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-right: 6px; vertical-align: 3px; }
+  .legend .key.dash { border-top-style: dashed; }
+  .legend .key.round { width: 12px; height: 12px; border: 2px solid; border-radius: 50%; vertical-align: -2px; }
 </style>
 </head>
 <body>
@@ -323,6 +336,7 @@
   <nav class="tabs" role="tablist">
     <button role="tab" id="tabInspect" aria-selected="true" aria-controls="inspectView">Damage inspector</button>
     <button role="tab" id="tabPrecheck" aria-selected="false" aria-controls="precheckView">Pre-rental check</button>
+    <button role="tab" id="tabFee" aria-selected="false" aria-controls="feeView">Repair fee</button>
   </nav>
 
   <div class="grid" id="inspectView" role="tabpanel" aria-labelledby="tabInspect">
@@ -452,6 +466,65 @@
         </div>
 
         <div class="meta-line" id="pcMeta"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" id="feeView" role="tabpanel" aria-labelledby="tabFee" hidden>
+    <div class="panel">
+      <h2>Damage photo</h2>
+      <div id="feeDropzone" class="dropzone">
+        <div id="feeHint" class="hint">
+          Drop a photo that shows the damage <b>and a tire</b><br />or <b>click to browse</b>
+        </div>
+        <div id="feeStage" class="stage" hidden>
+          <img id="feePreview" alt="photo to estimate" />
+          <canvas id="feeOverlay"></canvas>
+        </div>
+        <input type="file" id="feeFile" accept="image/jpeg,image/png,image/webp" />
+      </div>
+      <div class="file-row" id="feeFileRow" hidden>
+        <span class="name" id="feeFileName"></span>
+        <span id="feeFileSize"></span>
+      </div>
+      <p class="form-note">The tire (≈ 63 cm across) is the ruler: each damage is sized as a share of the nearest tire, overlapping damage is counted once, and the fee model prices the result. Name the file after the plate (e.g. <code>RDX-2376.jpg</code>) to link the car. Uses the damage confidence threshold set on the Damage inspector tab.</p>
+      <div class="actions">
+        <button class="primary" id="feeBtn" disabled>Estimate repair fee</button>
+        <button id="feeClear">Clear</button>
+      </div>
+      <div id="feeError" class="error-box" hidden></div>
+      <div class="legend" id="feeLegend" hidden>
+        <span><span class="key" style="border-color:#d69e2e"></span>damage (colour = severity)</span>
+        <span><span class="key round" style="border-color:#0d9488"></span>tire used as ruler</span>
+        <span><span class="key dash" style="border-color:#e53e3e"></span>impact</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Estimate</h2>
+      <div id="feeEmpty" class="empty">Upload a damage photo and click "Estimate repair fee".</div>
+      <div id="feeResult" hidden>
+        <div class="fee-total"><span class="amount" id="feeAmount">—</span><span class="unit" id="feeUnit"></span></div>
+        <p class="fee-note" id="feeNote"></p>
+        <span id="feeSev" class="sev-badge">—</span>
+
+        <div class="stat-row">
+          <div class="stat"><div class="v" id="feeStatDamage">0</div><div class="k">Damages</div></div>
+          <div class="stat"><div class="v" id="feeStatArea">—</div><div class="k">Damaged area (union)</div></div>
+          <div class="stat"><div class="v" id="feeStatTires">0</div><div class="k">Tires</div></div>
+        </div>
+
+        <table>
+          <thead><tr><th>Damage</th><th>Size vs tire</th><th>≈ cm²</th><th>Severity</th></tr></thead>
+          <tbody id="feeRows"></tbody>
+        </table>
+
+        <div id="feeImpactsWrap" hidden>
+          <div class="section-title">Impacts</div>
+          <ul class="impact-list" id="feeImpacts"></ul>
+        </div>
+
+        <div class="meta-line" id="feeMeta"></div>
       </div>
     </div>
   </div>
@@ -1052,7 +1125,7 @@
   };
 
   // --- Tabs -----------------------------------------------------------------
-  const tabs = [$('tabInspect'), $('tabPrecheck')];
+  const tabs = [$('tabInspect'), $('tabPrecheck'), $('tabFee')];
   function showTab(tab) {
     tabs.forEach((t) => {
       const on = t === tab;
@@ -1379,6 +1452,236 @@
     const saved = localStorage.getItem('irent.tab');
     if (saved && $(saved)) showTab($(saved));
   } catch (_) { /* storage unavailable */ }
+})();
+</script>
+
+<script>
+// Repair fee: POST /api/v1/fee/estimate. Damage is sized against the nearest tire in the photo,
+// merged into one damaged area, checked for impacts, and priced by the server's XGBoost model.
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const SEV_COLOR = { none: '#6b7280', minor: '#d69e2e', moderate: '#dd6b20', severe: '#e53e3e' };
+  const TIRE_COLOR = '#0d9488';
+  const IMPACT_COLOR = '#e53e3e';
+
+  const dropzone = $('feeDropzone'), fileInput = $('feeFile'), stage = $('feeStage');
+  const preview = $('feePreview'), overlay = $('feeOverlay'), btn = $('feeBtn');
+  const errorBox = $('feeError');
+  let file = null;
+  let last = null; // the estimate on screen
+
+  function apiBase() { return $('apiBase').value.trim().replace(/\/+$/, ''); }
+  function threshold() { return Number($('confThreshold').value) / 100; }
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function pct(v) { return v == null ? '—' : (v < 0.01 ? '<1%' : Math.round(v * 100) + '%'); }
+  function nice(cls) { return cls.replace(/_/g, ' '); }
+  function showError(msg) { errorBox.textContent = msg; errorBox.hidden = false; }
+  function clearError() { errorBox.textContent = ''; errorBox.hidden = true; }
+
+  function resetResult() {
+    last = null;
+    $('feeEmpty').hidden = false;
+    $('feeResult').hidden = true;
+    $('feeLegend').hidden = true;
+    draw();
+  }
+
+  function select(f) {
+    if (!f) return;
+    file = f;
+    clearError();
+    resetResult();
+    preview.onload = () => { $('feeHint').hidden = true; stage.hidden = false; draw(); };
+    preview.src = URL.createObjectURL(f);
+    $('feeFileRow').hidden = false;
+    $('feeFileName').textContent = f.name;
+    $('feeFileSize').textContent = '· ' + (f.size / 1024).toFixed(0) + ' KB';
+    btn.disabled = false;
+  }
+
+  dropzone.addEventListener('click', (e) => { if (e.target !== fileInput) fileInput.click(); });
+  fileInput.addEventListener('change', () => select(fileInput.files[0]));
+  ['dragenter', 'dragover'].forEach((evt) => dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag');
+  }));
+  ['dragleave', 'drop'].forEach((evt) => dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+  }));
+  dropzone.addEventListener('drop', (e) => select(e.dataTransfer.files && e.dataTransfer.files[0]));
+
+  $('feeClear').addEventListener('click', () => {
+    file = null;
+    fileInput.value = '';
+    preview.removeAttribute('src');
+    stage.hidden = true;
+    $('feeHint').hidden = false;
+    $('feeFileRow').hidden = true;
+    btn.disabled = true;
+    clearError();
+    resetResult();
+  });
+
+  // A filled label tab sitting just above (x, y), clamped to the top of the canvas.
+  function label(ctx, x, y, color, text) {
+    ctx.font = '600 12px -apple-system, sans-serif';
+    const ly = Math.max(0, y - 17);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, ly, ctx.measureText(text).width + 10, 17);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, x + 5, ly + 12.5);
+  }
+
+  function draw() {
+    const w = preview.clientWidth, h = preview.clientHeight;
+    overlay.width = w;
+    overlay.height = h;
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    if (!last || !preview.naturalWidth) return;
+    const sx = w / preview.naturalWidth, sy = h / preview.naturalHeight;
+    const used = new Set(last.detections.map((d) => d.tire_index));
+
+    last.tires.forEach((t, i) => {
+      const e = t.ellipse;
+      ctx.lineWidth = used.has(i) ? 2.5 : 1; // the rulers stand out from other tires
+      ctx.strokeStyle = TIRE_COLOR;
+      ctx.beginPath();
+      ctx.ellipse(e.cx * sx, e.cy * sy, e.rx * sx, e.ry * sy, 0, 0, 2 * Math.PI);
+      ctx.stroke();
+      if (used.has(i)) {
+        label(ctx, (e.cx - e.rx) * sx, (e.cy - e.ry) * sy, TIRE_COLOR, 'tire ≈ ' + last.tire_diameter_cm + ' cm');
+      }
+    });
+
+    last.impacts.forEach((imp) => {
+      const b = imp.bounding_box, m = 6;
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = IMPACT_COLOR;
+      ctx.setLineDash([10, 6]);
+      ctx.strokeRect(b.x1 * sx - m, b.y1 * sy - m, (b.x2 - b.x1) * sx + 2 * m, (b.y2 - b.y1) * sy + 2 * m);
+      ctx.setLineDash([]);
+    });
+
+    last.detections.forEach((d) => {
+      const b = d.bounding_box, color = SEV_COLOR[d.severity] || '#e53e3e';
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.strokeRect(b.x1 * sx, b.y1 * sy, (b.x2 - b.x1) * sx, (b.y2 - b.y1) * sy);
+      label(ctx, b.x1 * sx, b.y1 * sy, color,
+        nice(d.damage_class) + (d.tire_share != null ? ' · ' + pct(d.tire_share) + ' tire' : ''));
+    });
+  }
+  window.addEventListener('resize', draw);
+
+  function render(data) {
+    last = data;
+    $('feeEmpty').hidden = true;
+    $('feeResult').hidden = false;
+    $('feeLegend').hidden = false;
+
+    if (data.estimated_fee == null) {
+      $('feeAmount').textContent = '—';
+      $('feeUnit').textContent = 'no fee model loaded on the server';
+    } else {
+      $('feeAmount').textContent = 'NT$' + data.estimated_fee.toLocaleString();
+      $('feeUnit').textContent = 'estimated repair fee';
+    }
+    const a = data.damaged_area;
+    const notes = [];
+    if (!data.detections.length) notes.push('No damage detected, so there is nothing to repair.');
+    else if (!data.tires.length) notes.push('No tire in view: damage could not be sized, so the estimate rests on damage types only.');
+    else if (a.union_px && a.union_share == null) notes.push('Some damage could not be sized against a tire.');
+    if (data.estimated_fee && data.detections.length) notes.push('The fee model is trained on simulated repair history; treat it as a rough guide.');
+    $('feeNote').textContent = notes.join(' ');
+
+    const sev = $('feeSev');
+    sev.textContent = data.overall_severity + (data.overall_severity !== data.base_overall_severity ? ' (impact)' : '');
+    sev.className = 'sev-badge sev-' + data.overall_severity;
+
+    $('feeStatDamage').textContent = data.detections.length;
+    $('feeStatArea').textContent = a.union_share != null
+      ? pct(a.union_share) + ' tire'
+      : (a.union_px ? Math.round(a.union_px).toLocaleString() + ' px²' : '—');
+    $('feeStatArea').title = a.union_cm2 != null ? '≈ ' + Math.round(a.union_cm2).toLocaleString() + ' cm²' : '';
+    $('feeStatTires').textContent = data.tires.length;
+
+    const rows = $('feeRows');
+    rows.replaceChildren();
+    data.detections.forEach((d) => {
+      const name = el('td');
+      const sw = el('span', 'swatch');
+      sw.style.background = SEV_COLOR[d.severity] || '#999';
+      name.append(sw, nice(d.damage_class) + ' ' + Math.round(d.confidence * 100) + '%');
+      const tr = el('tr');
+      tr.append(
+        name,
+        el('td', null, d.tire_share == null ? 'no tire' : pct(d.tire_share) + ' · ' + d.size_band),
+        el('td', 'mono', d.area_cm2 == null ? '—' : Math.round(d.area_cm2).toLocaleString()),
+        el('td', null, d.severity === d.base_severity ? d.severity : d.base_severity + ' → ' + d.severity),
+      );
+      rows.appendChild(tr);
+    });
+    if (!data.detections.length) {
+      const td = el('td', 'mono', 'No damage detected.');
+      td.colSpan = 4;
+      const tr = el('tr');
+      tr.appendChild(td);
+      rows.appendChild(tr);
+    }
+
+    const impacts = $('feeImpacts');
+    impacts.replaceChildren();
+    data.impacts.forEach((imp) => {
+      const li = el('li');
+      li.append(el('b', null, imp.classes.map(nice).join(' + ')), ' — ' + imp.reason);
+      impacts.appendChild(li);
+    });
+    $('feeImpactsWrap').hidden = !data.impacts.length;
+
+    const meta = $('feeMeta');
+    meta.replaceChildren();
+    const add = (k, v) => { const s = el('span'); s.append(k + ' ', el('b', null, v)); meta.appendChild(s); };
+    if (data.vehicle) add('car', data.vehicle.license_plate + ' · ' + data.vehicle.model);
+    add('damage', data.model_name);
+    add('tires', data.tire_model_name);
+    if (data.fee_model_name) add('fee', data.fee_model_name);
+    add('threshold', Math.round(data.confidence_threshold * 100) + '%');
+    add('time', data.inference_ms.toFixed(0) + ' ms');
+    if (data.is_mock) meta.appendChild(el('span', null, '· mock detector (not real results)'));
+
+    draw();
+  }
+
+  btn.addEventListener('click', async () => {
+    if (!file) return;
+    clearError();
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Estimating…';
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('confidence_threshold', String(threshold()));
+      const res = await fetch(apiBase() + '/api/v1/fee/estimate', { method: 'POST', body: form });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        const err = payload && payload.error;
+        throw new Error(err ? err.code + ': ' + err.message : 'HTTP ' + res.status);
+      }
+      render(payload);
+    } catch (err) {
+      showError('Estimate failed — ' + (err.message || err) + '. Is the API running and reachable at "' + apiBase() + '"?');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Estimate repair fee';
+    }
+  });
 })();
 </script>
 </body>

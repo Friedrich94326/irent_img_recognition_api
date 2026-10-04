@@ -28,6 +28,7 @@ DAMAGE_LABELS_ZH: dict[DamageClass, str] = {
     DamageClass.LAMP_BROKEN: "燈具破損",
     DamageClass.TIRE_FLAT: "輪胎失壓",
     DamageClass.MISSING_PART: "零件缺失",
+    DamageClass.PARTS_BROKEN: "零件破損",
     DamageClass.PAINT_CHIP: "掉漆",
 }
 

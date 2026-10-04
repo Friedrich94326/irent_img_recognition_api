@@ -44,7 +44,7 @@ class PhotoSource(str, Enum):
 
 class PlateSource(str, Enum):
     REQUEST = "request"
-    OCR = "ocr"
+    FILENAME = "filename"
 
 
 class VehicleLink(BaseModel):
@@ -56,8 +56,8 @@ class VehicleLink(BaseModel):
     color: str
     status: str
     plate_source: PlateSource = Field(
-        description="'request' if the client sent plate_number, 'ocr' if it was read from the "
-        "photo."
+        description="'request' if the client sent plate_number, 'filename' if it was taken from "
+        "the uploaded file's name."
     )
 
 
@@ -75,6 +75,6 @@ class DamageRecord(BaseModel):
         description="ai_anomaly_alerts.vehicle_id; null when the photo matched no vehicle."
     )
     plate_number: str | None = Field(
-        description="ai_anomaly_alerts.plate_number: the matched, sent or OCR-read plate; null "
+        description="ai_anomaly_alerts.plate_number: the matched, sent or file-name plate; null "
         "when none was found."
     )

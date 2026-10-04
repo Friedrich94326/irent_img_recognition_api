@@ -15,8 +15,10 @@ the detector will actually see (see the plan's box-rotation formula: for a portr
 of size ``old_w x old_h`` rotated 90 degrees into landscape, a point ``(x, y)`` maps to
 ``(y, old_w - x)``).
 
-labelme labels ``parts_boken``/``parts_missing`` are mapped onto ``missing_part`` (the
-closest existing ``DamageClass``); ``dent``/``scratch``/``crack`` pass through unchanged.
+labelme ``parts_boken`` (sic) is the ``parts_broken`` class - a cracked/broken body part such
+as a bumper, low severity - and ``parts_missing`` maps onto ``missing_part``;
+``dent``/``scratch``/``crack`` pass through unchanged. The undamaged negatives carry the iRent
+hood logo, which teaches the model it is not a scratch.
 
 The damaged and negative groups are split into train/val separately (stratified) so the
 tiny damaged class isn't starved out of either split. The val split's *original* source
@@ -43,12 +45,16 @@ LABEL_MAP = {
     "dent": "dent",
     "scratch": "scratch",
     "crack": "crack",
-    "parts_boken": "missing_part",
+    "parts_boken": "parts_broken",  # Hotai's spelling
+    "parts_broken": "parts_broken",
     "parts_missing": "missing_part",
 }
 # Same id order as data/CarDD_yolo/data.yaml for classes 0-5, so those ids keep
-# lining up with the checkpoint being fine-tuned; missing_part is new (id 6).
-CLASS_NAMES = ["dent", "scratch", "crack", "glass_shatter", "lamp_broken", "tire_flat", "missing_part"]
+# lining up with the checkpoint being fine-tuned; missing_part (6) and parts_broken (7) are new.
+CLASS_NAMES = [
+    "dent", "scratch", "crack", "glass_shatter", "lamp_broken", "tire_flat", "missing_part",
+    "parts_broken",
+]
 CLASS_IDS = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 
 

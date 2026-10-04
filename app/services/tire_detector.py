@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from PIL import Image
 
 from app.config import Settings
+from app.schemas.common import BoundingBox
+from app.schemas.tire import TireDetection, TireEllipse
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,31 @@ class YOLOTireDetector(TireDetector):
                 x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
                 tires.append(RawTire(float(box.conf[0]), (x1, y1, x2, y2)))
         return sorted(tires, key=lambda t: t.confidence, reverse=True)
+
+
+def to_tire_detections(raws: list[RawTire], image_size: tuple[int, int]) -> list[TireDetection]:
+    """Response tires: boxes clipped to the image (dropped if nothing is left), each with the
+    ellipse inscribed in its clipped box."""
+
+    width, height = image_size
+    tires: list[TireDetection] = []
+    for raw in raws:
+        x1, y1, x2, y2 = raw.xyxy
+        x1, x2 = max(0.0, min(x1, width)), max(0.0, min(x2, width))
+        y1, y2 = max(0.0, min(y1, height)), max(0.0, min(y2, height))
+        if x2 <= x1 or y2 <= y1:
+            continue  # clipped away entirely: nothing left to show
+        tires.append(
+            TireDetection(
+                confidence=max(0.0, min(raw.confidence, 1.0)),
+                bounding_box=BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2),
+                # From the clipped box, so the outline never leaves the image.
+                ellipse=TireEllipse(
+                    cx=(x1 + x2) / 2, cy=(y1 + y2) / 2, rx=(x2 - x1) / 2, ry=(y2 - y1) / 2
+                ),
+            )
+        )
+    return tires
 
 
 def build_tire_detector(settings: Settings) -> TireDetector:

@@ -84,6 +84,20 @@ class Settings(BaseSettings):
         default=None, description="Device for the tire model. Unset: follow IRENT_YOLO_DEVICE."
     )
 
+    # --- Repair-fee estimate ----------------------------------------------
+    fee_model_path: Path | None = Field(
+        default=Path("weights/repair_fee_xgb.json"),
+        description="XGBoost repair-fee model from scripts/repair_fee_model.py (needs xgboost, "
+        "see requirements-fee.txt). Unset, missing or unloadable: /fee/estimate still measures "
+        "damage but returns no fee.",
+    )
+    tyre_diameter_cm: float = Field(
+        default=63.0,
+        gt=0,
+        description="Real diameter of a fleet tyre (195/65 R15 = ~63 cm), the ruler that damage "
+        "is sized against.",
+    )
+
     # --- Corner classifier -------------------------------------------------
     corner_weights_path: Path | None = Field(
         default=None,

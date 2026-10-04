@@ -19,13 +19,11 @@ from __future__ import annotations
 
 import argparse
 import html
-import itertools
 import json
 import math
 import os
 import shutil
 import sys
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -33,12 +31,19 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.services.repair_fee import (  # noqa: E402 - needs the sys.path entry above
+    TYRE_DIAMETER_CM,
+    Measured,
+    boxes_overlap,
+    damaged_area,
+    impact_clusters,
+    measure,
+    overall,
+)
+
 SOURCE = Path("data/Hotai_iRent_cars/auto_labelled")
 SPLIT_ORDER = ("Test_data", "Validation_data", "Training_data")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".jfif"}
-TYRE_DIAMETER_CM = 63.0
-SMALL_SHARE, LARGE_SHARE = 0.05, 0.25
-"""Damage smaller than 5 % of the tyre's area is 'small', larger than 25 % is 'large'."""
 DEFAULT_PHOTOS = (
     "RDJ-0793左前 還",  # bumper dent beside the front tyre
     "RDX-2376右後 還",  # broken tail lamp
@@ -49,191 +54,6 @@ DEFAULT_PHOTOS = (
 """Photos car_damage.pt gets right; most others have false detections (logos, glare, tarmac)."""
 MAX_WIDTH = 1280
 DAMAGE_COLOUR, TYRE_COLOUR, IMPACT_COLOUR = (255, 138, 76), (56, 189, 248), (239, 68, 68)
-
-
-@dataclass
-class Measured:
-    damage_class: str
-    confidence: float
-    xyxy: tuple[float, float, float, float]
-    base_severity: str
-    severity: str
-    tyre_share: float | None
-    area_cm2: float | None
-    size_band: str | None
-    tyre_index: int | None
-
-
-def size_band(share: float) -> str:
-    if share < SMALL_SHARE:
-        return "small"
-    return "large" if share > LARGE_SHARE else "medium"
-
-
-def nearest_tyre(box, tyres) -> int:
-    """Index of the tyre whose centre is closest to the box centre.
-
-    The nearest wheel is the best guess for a ruler at the same distance from the camera; the
-    most confident one is often the far wheel, shrunk by perspective.
-    """
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-    return min(
-        range(len(tyres)),
-        key=lambda i: math.dist((cx, cy), ((tyres[i].xyxy[0] + tyres[i].xyxy[2]) / 2,
-                                           (tyres[i].xyxy[1] + tyres[i].xyxy[3]) / 2)),
-    )
-
-
-def tyre_scale(tyre, tyre_cm: float) -> tuple[float, float]:
-    """(tyre area in px², pixels per cm) for a detected tyre."""
-    tx1, ty1, tx2, ty2 = tyre.xyxy
-    rx, ry = (tx2 - tx1) / 2, (ty2 - ty1) / 2
-    # Seen at an angle a wheel shrinks along one axis only: the longer axis is its diameter.
-    return math.pi * rx * ry, 2 * max(rx, ry) / tyre_cm
-
-
-def measure(raw_damage, tyres, tyre_cm: float) -> list[Measured]:
-    from app.services.severity import _shift, detection_severity  # noqa: PLC0415
-
-    out = []
-    for det in raw_damage:
-        x1, y1, x2, y2 = det.xyxy
-        box_area = (x2 - x1) * (y2 - y1)
-        base = detection_severity(det.damage_class, det.confidence)
-        share = cm2 = band = ref = None
-        severity = base
-        if tyres:
-            ref = nearest_tyre(det.xyxy, tyres)
-            tyre_area, px_per_cm = tyre_scale(tyres[ref], tyre_cm)
-            share = box_area / tyre_area
-            cm2 = box_area / px_per_cm**2
-            band = size_band(share)
-            severity = _shift(base, {"small": -1, "medium": 0, "large": 1}[band])
-        out.append(
-            Measured(det.damage_class.value, det.confidence, det.xyxy, base.value,
-                     severity.value, share, cm2, band, ref)
-        )
-    return out
-
-
-def union_area(boxes) -> float:
-    """Exact area covered by axis-aligned boxes, overlaps counted once (coordinate compression)."""
-    xs = sorted({v for b in boxes for v in (b[0], b[2])})
-    ys = sorted({v for b in boxes for v in (b[1], b[3])})
-    area = 0.0
-    for x0, x1 in itertools.pairwise(xs):
-        for y0, y1 in itertools.pairwise(ys):
-            if any(b[0] <= x0 and x1 <= b[2] and b[1] <= y0 and y1 <= b[3] for b in boxes):
-                area += (x1 - x0) * (y1 - y0)
-    return area
-
-
-BODY_EXCLUDED = {"tire_flat"}
-"""Its box is the wheel itself, not damaged bodywork, so it stays out of the area union."""
-DEFORMATION = {"dent", "crack"}
-BROKEN_PARTS = {"crack", "lamp_broken", "glass_shatter", "missing_part"}
-IMPACT_AREA_SHARE = 1.0
-"""A single cluster of damage bigger than a whole wheel reads as a collision."""
-
-
-def damaged_area(measured: list[Measured], tyres, tyre_cm: float) -> dict:
-    """Union of body-damage boxes per reference tyre, next to the plain sum of the boxes."""
-    body = [m for m in measured if m.damage_class not in BODY_EXCLUDED]
-    groups: dict[int | None, list[Measured]] = {}
-    for m in body:
-        groups.setdefault(m.tyre_index, []).append(m)
-    union_px = summed_px = 0.0
-    union_share = summed_share = union_cm2 = 0.0
-    for ref, items in groups.items():
-        u = union_area([m.xyxy for m in items])
-        s = sum((m.xyxy[2] - m.xyxy[0]) * (m.xyxy[3] - m.xyxy[1]) for m in items)
-        union_px, summed_px = union_px + u, summed_px + s
-        if ref is not None:
-            tyre_area, px_per_cm = tyre_scale(tyres[ref], tyre_cm)
-            union_share += u / tyre_area
-            summed_share += s / tyre_area
-            union_cm2 += u / px_per_cm**2
-    scaled = bool(body) and all(ref is not None for ref in groups)
-    return {
-        "union_px": union_px,
-        "summed_px": summed_px,
-        "union_share": union_share if scaled else None,
-        "summed_share": summed_share if scaled else None,
-        "union_cm2": union_cm2 if scaled else None,
-    }
-
-
-def impact_clusters(measured: list[Measured], tyres, tyre_cm: float, image_size) -> list[dict]:
-    """Groups of touching body-damage boxes that look like a collision rather than wear.
-
-    The damage models have no 'crash' or 'broken bumper' class, so an impact is inferred from how
-    detections combine: deformation next to a broken part, a pile-up of several damage types in
-    one spot, or damage covering more than a wheel's worth of area.
-    """
-    body = [m for m in measured if m.damage_class not in BODY_EXCLUDED]
-    pad = 0.02 * min(image_size)
-    grown = [(m.xyxy[0] - pad, m.xyxy[1] - pad, m.xyxy[2] + pad, m.xyxy[3] + pad) for m in body]
-    parent = list(range(len(body)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for i in range(len(body)):
-        for j in range(i + 1, len(body)):
-            if _overlaps(grown[i], grown[j]):
-                parent[find(i)] = find(j)
-    clusters: dict[int, list[Measured]] = {}
-    for i, m in enumerate(body):
-        clusters.setdefault(find(i), []).append(m)
-
-    impacts = []
-    for items in clusters.values():
-        classes = [m.damage_class for m in items]
-        kinds = set(classes)
-        reasons = []
-        deformed = [m for m in items if m.damage_class in DEFORMATION]
-        broken = [m for m in items if m.damage_class in BROKEN_PARTS]
-        if any(d is not b and _overlaps(d.xyxy, b.xyxy) for d in deformed for b in broken):
-            reasons.append("deformation next to a broken part")
-        if len(items) >= 3 and len(kinds) >= 2:
-            reasons.append(f"{len(items)} damages of {len(kinds)} kinds in one spot")
-        ref = items[0].tyre_index
-        if ref is not None and all(m.tyre_index == ref for m in items):
-            tyre_area, _ = tyre_scale(tyres[ref], tyre_cm)
-            share = union_area([m.xyxy for m in items]) / tyre_area
-            if share >= IMPACT_AREA_SHARE:
-                reasons.append(f"damaged area {share:.0%} of a tyre")
-        if reasons:
-            boxes = [m.xyxy for m in items]
-            impacts.append({
-                "box": (min(b[0] for b in boxes), min(b[1] for b in boxes),
-                        max(b[2] for b in boxes), max(b[3] for b in boxes)),
-                "classes": sorted(kinds),
-                "reason": "; ".join(reasons),
-            })
-    return impacts
-
-
-def overall(measured: list[Measured], impacts: list[dict]) -> tuple[str, str]:
-    """(overall severity, base severity before any impact escalation)."""
-    from app.schemas.common import Severity  # noqa: PLC0415
-    from app.schemas.damage import Detection  # noqa: PLC0415
-    from app.services.severity import derive_overall_severity  # noqa: PLC0415
-
-    detections = [
-        Detection(
-            damage_class=m.damage_class,
-            confidence=round(m.confidence, 4),
-            severity=Severity(m.severity),
-            bounding_box=dict(zip(("x1", "y1", "x2", "y2"), m.xyxy, strict=True)),
-        )
-        for m in measured
-    ]
-    base = derive_overall_severity(detections).value
-    return (Severity.SEVERE.value if impacts else base), base
 
 
 def font(size: int):
@@ -257,7 +77,7 @@ def _dashed_rectangle(pen, box, colour, width: int, dash: int) -> None:
 
 
 def draw(image: Image.Image, measured: list[Measured], tyres, tyre_cm: float,
-         impacts: list[dict]) -> Image.Image:
+         impacts: list) -> Image.Image:
     scale = min(1.0, MAX_WIDTH / image.width)
     canvas = image.resize((round(image.width * scale), round(image.height * scale)))
     pen = ImageDraw.Draw(canvas)
@@ -268,8 +88,8 @@ def draw(image: Image.Image, measured: list[Measured], tyres, tyre_cm: float,
     labels = []  # (box, text, colour, preferred positions); placed after every outline is drawn
     for impact in impacts:
         margin = 3 * stroke
-        box = [impact["box"][0] * scale - margin, impact["box"][1] * scale - margin,
-               impact["box"][2] * scale + margin, impact["box"][3] * scale + margin]
+        box = [impact.box[0] * scale - margin, impact.box[1] * scale - margin,
+               impact.box[2] * scale + margin, impact.box[3] * scale + margin]
         box = [max(0, box[0]), max(0, box[1]), min(canvas.width - 1, box[2]),
                min(canvas.height - 1, box[3])]
         _dashed_rectangle(pen, box, IMPACT_COLOUR, stroke, 6 * stroke)
@@ -296,15 +116,11 @@ def draw(image: Image.Image, measured: list[Measured], tyres, tyre_cm: float,
         rects = [(x, min(max(0, ys[p]), canvas.height - h)) for p in positions]
         rects = [(rx, ry, rx + w, ry + h) for rx, ry in rects]
         # First spot that doesn't cover an earlier label; overlapping labels leave clipped text.
-        rect = next((r for r in rects if not any(_overlaps(r, q) for q in placed)), rects[0])
+        rect = next((r for r in rects if not any(boxes_overlap(r, q) for q in placed)), rects[0])
         placed.append(rect)
         pen.rectangle(rect, fill=colour)
         pen.text((rect[0] + 6, rect[1] + 5 - top), text, fill=(20, 22, 26), font=label_font)
     return canvas
-
-
-def _overlaps(a, b) -> bool:
-    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
 def candidates(source: Path) -> list[Path]:
@@ -381,10 +197,11 @@ def main() -> None:
         bucket, limit = (with_tyre, args.max) if tyres else (without_tyre, args.no_tyre_examples)
         if len(bucket) >= limit:
             continue
-        measured = measure(raw, tyres, args.tyre_cm)
-        area = damaged_area(measured, tyres, args.tyre_cm)
-        impacts = impact_clusters(measured, tyres, args.tyre_cm, image.size)
-        severity, base_severity = overall(measured, impacts)
+        boxes = [t.xyxy for t in tyres]
+        measured = measure(raw, boxes, args.tyre_cm)
+        area = damaged_area(measured, boxes, args.tyre_cm)
+        impacts = impact_clusters(measured, boxes, args.tyre_cm, image.size)
+        severity, base_severity = (s.value for s in overall(measured, impacts))
         fee = None
         if fee_model is not None:
             row = repair_fee_model.features(measured, area, impacts)
@@ -398,19 +215,19 @@ def main() -> None:
             "tyre_confidence": tyres[0].confidence if tyres else None,
             "overall": severity,
             "base_overall": base_severity,
-            "area": area,
-            "impacts": impacts,
+            "area": vars(area),
+            "impacts": [vars(i) for i in impacts],
             "fee": fee,
             "detections": [m.__dict__ for m in measured],
         })
         print(f"{name} {path.name}: {len(raw)} damage, {len(tyres)} tyre -> "
               + ", ".join(f"{m.damage_class} {m.tyre_share:.0%}" if m.tyre_share is not None
                           else m.damage_class for m in measured)
-              + f" | union {area['union_px']:.0f}px vs summed {area['summed_px']:.0f}px"
-              + (f" ({area['union_share']:.0%} vs {area['summed_share']:.0%} tyre)"
-                 if area["union_share"] is not None else "")
+              + f" | union {area.union_px:.0f}px vs summed {area.summed_px:.0f}px"
+              + (f" ({area.union_share:.0%} vs {area.summed_share:.0%} tyre)"
+                 if area.union_share is not None else "")
               + f" | overall {base_severity}"
-              + (f" -> {severity} [{'; '.join(i['reason'] for i in impacts)}]" if impacts else "")
+              + (f" -> {severity} [{'; '.join(i.reason for i in impacts)}]" if impacts else "")
               + (f" | fee NT${fee:,.0f}" if fee is not None else ""))
 
     cards = with_tyre + without_tyre

@@ -24,6 +24,7 @@ from app.schemas.common import DamageClass
 from app.services.evaluator import DamageEvaluator, RawDetection
 from app.services.plate_recognizer import PlateRecognizer, RawPlate
 from app.services.tire_detector import MockTireDetector
+from app.services.vehicle_link import plate_from_filename
 from app.services.vehicle_repository import VehicleRepository
 
 SOURCE_DB = Path("data/irent_op_backend.sqlite")
@@ -144,30 +145,54 @@ def test_known_plate_writes_annotations_alert_and_latest_anomaly(
     assert rows(db, "SELECT latest_anomaly FROM vehicles WHERE id = 1") == [("右側 刮傷、凹陷",)]
 
 
-def test_plate_read_by_ocr_when_not_sent(db: Path, sample_jpeg: bytes) -> None:
-    client, recognizer = make_client(db, ocr_text="RAC-4582")
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("RDX-2376.jpg", "RDX-2376"),
+        ("rdx2376.png", "RDX-2376"),
+        ("photos/RDX-2376.jpg", "RDX-2376"),
+        (r"C:\photos\RDX-2376.jpg", "RDX-2376"),
+        ("car.jpg", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_plate_from_filename(filename: str | None, expected: str | None) -> None:
+    assert plate_from_filename(filename) == expected
+
+
+def test_plate_taken_from_filename_when_not_sent(db: Path, sample_jpeg: bytes) -> None:
+    client, recognizer = make_client(db, ocr_text="ZZZ-9999")
     with client:
-        body = client.post(DAMAGE, files={"file": ("car.jpg", sample_jpeg, "image/jpeg")}).json()
-    assert recognizer.calls == 1
-    assert body["vehicle"]["plate_source"] == "ocr"
+        body = client.post(
+            DAMAGE, files={"file": ("rac4582.jpg", sample_jpeg, "image/jpeg")}
+        ).json()
+    assert recognizer.calls == 0  # the plate comes from the file name; the photo is never OCR'd
+    assert body["vehicle"]["id"] == 1
+    assert body["vehicle"]["plate_source"] == "filename"
     assert body["db_record"]["anomaly_text"] == "刮傷、凹陷"  # side unknown: no side prefix
     assert rows(db, "SELECT image_side FROM damage_annotations WHERE case_id = ?",
                 body["request_id"])[0] == ("unknown",)
 
 
 @pytest.mark.parametrize(
-    ("plate", "ocr_text", "stored_plate"),
-    [("ZZZ-9999", None, "ZZZ-9999"), (None, "ZZZ-9999", "ZZZ-9999"), (None, None, None)],
-    ids=["unregistered-plate", "unregistered-ocr", "no-plate-found"],
+    ("plate", "filename", "stored_plate"),
+    [
+        ("ZZZ-9999", "car.jpg", "ZZZ-9999"),
+        (None, "ZZZ-9999.jpg", "ZZZ-9999"),
+        (None, "car.jpg", None),
+    ],
+    ids=["unregistered-plate", "unregistered-filename", "no-plate-found"],
 )
 def test_unmatched_vehicle_still_writes_alert(
-    db: Path, sample_jpeg: bytes, plate: str | None, ocr_text: str | None, stored_plate: str | None
+    db: Path, sample_jpeg: bytes, plate: str | None, filename: str, stored_plate: str | None
 ) -> None:
     vehicles_before = rows(db, "SELECT * FROM vehicles ORDER BY id")
-    client, _ = make_client(db, ocr_text=ocr_text)
+    # OCR would find a registered plate: a no-plate file name must still leave the photo unlinked.
+    client, recognizer = make_client(db, ocr_text=KNOWN_PLATE)
     with client:
         data = {"plate_number": plate} if plate else {}
-        files = {"file": ("car.jpg", sample_jpeg, "image/jpeg")}
+        files = {"file": (filename, sample_jpeg, "image/jpeg")}
         resp = client.post(DAMAGE, files=files, data=data)
     body = resp.json()
     assert resp.status_code == 200, resp.text
@@ -190,6 +215,20 @@ def test_unmatched_vehicle_still_writes_alert(
     assert [a[0] for a in annotations] == record["annotation_ids"]
     assert {a[1] for a in annotations} == {stored_plate or ""}
     assert rows(db, "SELECT * FROM vehicles ORDER BY id") == vehicles_before
+    assert recognizer.calls == 0
+
+
+def test_sent_plate_wins_over_filename(db: Path, sample_jpeg: bytes) -> None:
+    client, _ = make_client(db)
+    with client:
+        body = client.post(
+            DAMAGE,
+            files={"file": ("ZZZ-9999.jpg", sample_jpeg, "image/jpeg")},
+            data={"plate_number": KNOWN_PLATE},
+        ).json()
+    assert body["vehicle"]["id"] == 1
+    assert body["vehicle"]["plate_source"] == "request"
+    assert body["db_record"]["plate_number"] == KNOWN_PLATE
 
 
 LEGACY_ALERTS_DDL = """
@@ -272,3 +311,14 @@ def test_tire_links_vehicle_read_only(db: Path, sample_jpeg: bytes) -> None:
         ).json()
     assert body["vehicle"]["license_plate"] == KNOWN_PLATE
     assert rows(db, "SELECT COUNT(*) FROM damage_annotations") == annotations_before
+
+
+def test_tire_takes_plate_from_filename(db: Path, sample_jpeg: bytes) -> None:
+    client, recognizer = make_client(db)
+    with client:
+        body = client.post(
+            TIRE, files={"file": (f"{KNOWN_PLATE}.jpg", sample_jpeg, "image/jpeg")}
+        ).json()
+    assert recognizer.calls == 0
+    assert body["vehicle"]["license_plate"] == KNOWN_PLATE
+    assert body["vehicle"]["plate_source"] == "filename"

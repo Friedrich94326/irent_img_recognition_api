@@ -47,3 +47,10 @@ def test_summarize_counts_by_class() -> None:
     assert summary.counts_by_class[DamageClass.DENT] == 2
     assert summary.counts_by_class[DamageClass.SCRATCH] == 1
     assert summary.max_confidence == 0.8
+
+
+def test_parts_broken_is_low_severity() -> None:
+    # A cracked bumper (Hotai 'parts_boken') is minor, unlike a missing part.
+    assert detection_severity(DamageClass.PARTS_BROKEN, 0.9) == Severity.MINOR
+    assert detection_severity(DamageClass.PARTS_BROKEN, 0.3) == Severity.NONE
+    assert detection_severity(DamageClass.MISSING_PART, 0.9) == Severity.SEVERE

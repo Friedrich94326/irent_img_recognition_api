@@ -14,6 +14,8 @@ os.environ.setdefault("IRENT_TIRE_USE_MOCK", "true")
 os.environ.setdefault("IRENT_DB_PATH", "tests/__no_ops_db__.sqlite")
 # Likewise never load a corner classifier configured for dev use; missing weights = no check.
 os.environ.setdefault("IRENT_CORNER_WEIGHTS_PATH", "tests/__no_corner_model__.pt")
+# Nor the XGBoost fee model: tests inject their own through get_fee_model.
+os.environ.setdefault("IRENT_FEE_MODEL_PATH", "tests/__no_fee_model__.json")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

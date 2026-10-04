@@ -19,43 +19,17 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
 
-CLASSES = ("dent", "scratch", "crack", "glass_shatter", "lamp_broken", "tire_flat", "missing_part")
-FEATURES = (
-    [f"n_{c}" for c in CLASSES]
-    + [f"max_share_{c}" for c in CLASSES]
-    + ["union_share", "n_detections", "impact", "n_impacts"]
-)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# The feature layout lives with the API, which serves this model (POST /api/v1/fee/estimate).
+from app.services.repair_fee import CLASSES, FEATURES, features  # noqa: E402, F401
+
 MODEL_PATH = Path("weights/repair_fee_xgb.json")
 SIMULATED_CSV = Path("data/repair_fee_simulated.csv")
-
-# --- features --------------------------------------------------------------------------------
-
-
-def features(measured, area: dict, impacts: list) -> list[float]:
-    """Feature row for one photo from build_demo_page's Measured rows, damaged_area and impacts.
-
-    Shares are NaN when no tyre gave a scale; XGBoost routes missing values natively.
-    """
-    counts = dict.fromkeys(CLASSES, 0)
-    shares: dict[str, float] = dict.fromkeys(CLASSES, math.nan)
-    for m in measured:
-        if m.damage_class not in counts:
-            continue
-        counts[m.damage_class] += 1
-        if m.tyre_share is not None:
-            prev = shares[m.damage_class]
-            shares[m.damage_class] = m.tyre_share if math.isnan(prev) else max(prev, m.tyre_share)
-    union = area.get("union_share")
-    return (
-        [counts[c] for c in CLASSES]
-        + [shares[c] for c in CLASSES]
-        + [math.nan if union is None else union, len(measured), int(bool(impacts)), len(impacts)]
-    )
-
 
 # --- simulated history -----------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ from app.services.corner_classifier import CornerClassifier
 from app.services.evaluator import DamageEvaluator
 from app.services.plate_recognizer import PlateRecognizer
 from app.services.precheck import PrecheckRepository
+from app.services.repair_fee import FeeModel
 from app.services.tire_detector import TireDetector
 from app.services.vehicle_photos import VehiclePhotoRepository
 from app.services.vehicle_repository import VehicleRepository
@@ -38,6 +39,12 @@ def get_corner_classifier(request: Request) -> CornerClassifier | None:
     return request.app.state.corner_classifier
 
 
+def get_fee_model(request: Request) -> FeeModel | None:
+    """Return the repair-fee model, or ``None`` when none could be loaded."""
+
+    return request.app.state.fee_model
+
+
 def get_vehicle_repository(request: Request) -> VehicleRepository | None:
     """Return the iRent ops database repository, or ``None`` when no database is configured."""
 
@@ -65,6 +72,7 @@ __all__ = [
     "Settings",
     "get_corner_classifier",
     "get_evaluator",
+    "get_fee_model",
     "get_plate_recognizer",
     "get_precheck_repository",
     "get_settings",

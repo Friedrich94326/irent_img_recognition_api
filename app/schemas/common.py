@@ -22,6 +22,7 @@ class DamageClass(str, Enum):
     LAMP_BROKEN = "lamp_broken"
     TIRE_FLAT = "tire_flat"
     MISSING_PART = "missing_part"
+    PARTS_BROKEN = "parts_broken"  # a cracked / broken body part, e.g. bumper (Hotai 'parts_boken')
     PAINT_CHIP = "paint_chip"
 
 

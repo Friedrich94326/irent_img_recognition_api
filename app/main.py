@@ -18,6 +18,7 @@ from app.services.corner_classifier import build_corner_classifier
 from app.services.evaluator import build_evaluator
 from app.services.plate_recognizer import build_plate_recognizer
 from app.services.precheck import build_precheck_repository
+from app.services.repair_fee import build_fee_model
 from app.services.tire_detector import build_tire_detector
 from app.services.vehicle_photos import build_vehicle_photo_repository
 from app.services.vehicle_repository import build_vehicle_repository
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.tire_detector.is_mock,
     )
     app.state.corner_classifier = build_corner_classifier(settings)
+    app.state.fee_model = build_fee_model(settings)
     app.state.vehicle_repository = build_vehicle_repository(settings)
     app.state.api_call_log = build_api_call_log(settings)
     app.state.vehicle_photo_repository = build_vehicle_photo_repository(settings)
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.plate_recognizer = None
     app.state.tire_detector = None
     app.state.corner_classifier = None
+    app.state.fee_model = None
     app.state.vehicle_repository = None
     app.state.api_call_log = None
     app.state.precheck_repository = None

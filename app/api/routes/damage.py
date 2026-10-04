@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.api.deps import (
     get_evaluator,
-    get_plate_recognizer,
     get_settings,
     get_vehicle_repository,
 )
@@ -20,7 +19,6 @@ from app.schemas.errors import ErrorResponse
 from app.schemas.vehicle import DamageRecord, ImageSide
 from app.services.evaluator import DamageEvaluator
 from app.services.image_io import load_upload
-from app.services.plate_recognizer import PlateRecognizer
 from app.services.severity import derive_overall_severity, enrich, summarize
 from app.services.vehicle_link import link_vehicle, to_vehicle_link
 from app.services.vehicle_repository import VehicleRepository
@@ -44,7 +42,8 @@ async def evaluate_damage(
     file: UploadFile = File(..., description="A single JPEG, PNG or WebP image of the vehicle."),
     plate_number: str | None = Form(
         default=None,
-        description="Vehicle plate, e.g. 'RAC-4582'. If omitted, it is read from the photo.",
+        description="Vehicle plate, e.g. 'RAC-4582'. If omitted, it is taken from the "
+        "uploaded file's name (e.g. 'RDX-2376.jpg').",
     ),
     image_side: ImageSide = Form(
         default=ImageSide.UNKNOWN, description="Which side of the vehicle the photo shows."
@@ -57,7 +56,6 @@ async def evaluate_damage(
         "IRENT_YOLO_CONFIDENCE_THRESHOLD.",
     ),
     evaluator: DamageEvaluator = Depends(get_evaluator),
-    recognizer: PlateRecognizer = Depends(get_plate_recognizer),
     repo: VehicleRepository | None = Depends(get_vehicle_repository),
     settings: Settings = Depends(get_settings),
 ) -> DamageEvaluationResponse:
@@ -78,7 +76,7 @@ async def evaluate_damage(
 
     vehicle_link = None
     db_record = None
-    match = await link_vehicle(image, plate_number, repo, recognizer, settings)
+    match = await link_vehicle(plate_number, file.filename, repo)
     if match is not None:  # a database is configured
         if match.vehicle is not None:
             vehicle_link = to_vehicle_link(match.vehicle, match.source)

@@ -1,0 +1,56 @@
+{
+  "skill_name": "diagnose-plate-misread",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Why is the license plate \"RDX-2376\" always misidentified as \"RQI-270\"? Several alerts in ai_anomaly_alerts got RQI-270 instead of the real car.",
+      "expected_output": "Reproduces the misread on the cracked rear-right photo (raw OCR 'R01270' at ~10% confidence), shows format_plate's confusion swap turning 01 into QI, explains it won because it was the only valid-format read (low confidence not filtered), proposes a fix (reject I/O letters / don't let swap-fallback or sub-threshold reads win) with a regression test and benchmark check, and mentions the existing bad DB rows. No code edits.",
+      "files": [],
+      "assertions": [
+        "Ran the real OCR on actual photos of the car and reports raw OCR text from that run (not only reasoning from code)",
+        "Quotes the specific raw OCR string(s) that turned into the wrong plate",
+        "Names the responsible code stage(s) in app/services/plate_recognizer.py (function or constant)",
+        "Proposes a concrete code-level fix",
+        "Gives a way to verify the fix: a regression test and/or re-running scripts/evaluate_plate_recognition.py",
+        "Did not modify repository files or the ops database",
+        "Identifies the raw read 'R01270' (or equivalent digits-in-letter-position read) from the RDX-2376 rear-right return photo",
+        "Explains the confusion swap 0->Q and 1->I (_TO_LETTER) produced RQI",
+        "Explains the low-confidence read still won (valid-format reads bypass plate_min_confidence / it was the only valid read)",
+        "Mentions the existing wrong RQI-270 rows in the database"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "/plate/recognize keeps giving me RCH-1883 or RCY-1883 or RCI-1883 for car RCW-1883 (photos are the RCW1883*.jfif files in data/Hotai_iRent_cars). Only one of its 8 photos reads right. What's going wrong?",
+      "expected_output": "Traces RCW-1883 photos, shows raw reads where the W glyph is read as H/Y/I, identifies glyph confusion at crop width / K-W swap only covering K<->W and I being accepted though Taiwan plates never use I, proposes a fix (e.g. reject I/O, extend lookalike alternatives, registry check), with verification plan. No code edits.",
+      "files": [],
+      "assertions": [
+        "Ran the real OCR on actual photos of the car and reports raw OCR text from that run (not only reasoning from code)",
+        "Quotes the specific raw OCR string(s) that turned into the wrong plate",
+        "Names the responsible code stage(s) in app/services/plate_recognizer.py (function or constant)",
+        "Proposes a concrete code-level fix",
+        "Gives a way to verify the fix: a regression test and/or re-running scripts/evaluate_plate_recognition.py",
+        "Did not modify repository files or the ops database",
+        "Shows raw reads where the W glyph comes out as H, Y or I",
+        "Notes that I (and O) never appear on Taiwan plates yet RCI-1883 is accepted",
+        "Notes the K/W lookalike alternative does not cover W->H/Y/I"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "the plate reader returns RCQ-676 for 'RCQ6760左前 借.jfif' and nothing at all for several other RCQ-6760 photos. why does it drop the last digit, and why does it find nothing on the others?",
+      "expected_output": "Traces RCQ-6760 photos; shows the dropped-glyph read accepted because _PLATE_RE allows 3 digits (older/motorcycle layout), and for the no-plate photos shows whether the plate was never located (only whole-frame reads / none) vs read but rejected. Proposes fixes (prefer/require ABC-1234 for cars, locator/detector weights) with verification. No code edits.",
+      "files": [],
+      "assertions": [
+        "Ran the real OCR on actual photos of the car and reports raw OCR text from that run (not only reasoning from code)",
+        "Quotes the specific raw OCR string(s) that turned into the wrong plate",
+        "Names the responsible code stage(s) in app/services/plate_recognizer.py (function or constant)",
+        "Proposes a concrete code-level fix",
+        "Gives a way to verify the fix: a regression test and/or re-running scripts/evaluate_plate_recognition.py",
+        "Did not modify repository files or the ops database",
+        "Explains RCQ-676 is accepted because _PLATE_RE allows 3-digit layouts",
+        "For the no-plate photos, distinguishes plate never located vs read but rejected, with evidence"
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ from app.services.evaluator import RawDetection
 CLASS_BASE_SEVERITY: dict[DamageClass, Severity] = {
     DamageClass.PAINT_CHIP: Severity.MINOR,
     DamageClass.SCRATCH: Severity.MINOR,
+    DamageClass.PARTS_BROKEN: Severity.MINOR,
     DamageClass.DENT: Severity.MODERATE,
     DamageClass.CRACK: Severity.MODERATE,
     DamageClass.LAMP_BROKEN: Severity.MODERATE,
